@@ -1,0 +1,29 @@
+{
+  "name": "pdf_chunks_text_idx",
+  "type": "search",
+  "definition": {
+    "mappings": {
+      "dynamic": false,
+      "fields": {
+        "content": { "type": "string", "analyzer": "lucene.standard" },
+        "title": { "type": "string" },
+        "author": { "type": "string" },
+        "subject": { "type": "string" },
+        "keywords": { "type": "string" },
+        "document_id": { "type": "token" },
+        "filename": { "type": "token" },
+        "language": { "type": "token" },
+        "content_type": { "type": "token" },
+        "page_number": { "type": "number" },
+        "chunk_index": { "type": "number" },
+        "creation_date": { "type": "date" },
+        "ingested_at": { "type": "date" },
+        "category": { "type": "token" },
+        "status": { "type": "token" },
+        "year": { "type": "number" },
+        "tags": { "type": "token" },
+        "file_type": { "type": "token" }
+      }
+    }
+  }
+}
