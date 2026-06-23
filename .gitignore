@@ -13,6 +13,7 @@ data/*.pdf
 .vscode/
 *.md
 !README.md
+!README.it.md
 .claude/
 .pytest_cache/
 .coverage

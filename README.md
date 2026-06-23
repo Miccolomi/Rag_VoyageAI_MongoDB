@@ -1,41 +1,43 @@
-# RAG con MongoDB Atlas e Voyage AI
+# RAG with MongoDB Atlas and Voyage AI
 
-Applicazione dimostrativa end-to-end per caricare documenti, recuperarne i
-contenuti con ricerca ibrida e generare risposte fondate sulle fonti archiviate
-in MongoDB Atlas.
+[Italiano](README.it.md)
 
-## Cosa fa
+An end-to-end demonstration application for ingesting documents, retrieving
+their content through hybrid search, and generating grounded answers from
+sources stored in MongoDB Atlas.
 
-- Acquisisce documenti PDF e Office ed estrae testo e metadati utili.
-- Suddivide i documenti in chunk conservando pagina e tipo di contenuto.
-- Supporta embedding gestiti da MongoDB Atlas, embedding applicativi e
-  contextualized embedding con Voyage AI.
-- Esegue ricerca keyword, semantica o ibrida.
-- Combina le classifiche con `$rankFusion`.
-- Applica i filtri metadata direttamente alle pipeline di retrieval.
-- Riordina i candidati con i modelli di reranking Voyage AI.
-- Genera risposte grounded usando esclusivamente i passaggi recuperati.
-- Mantiene separate le citazioni nel testo e i documenti originali scaricabili.
-- Mostra il contributo delle diverse fasi della pipeline nella pagina Query.
+## What It Does
 
-## Architettura
+- Ingests PDF and Office documents and extracts text and useful metadata.
+- Splits documents into chunks while preserving page and content-type data.
+- Supports MongoDB Atlas-managed embeddings, application-generated embeddings,
+  and contextualized embeddings with Voyage AI.
+- Performs keyword, semantic, or hybrid search.
+- Combines result rankings with `$rankFusion`.
+- Applies metadata filters directly within the retrieval pipelines.
+- Reorders candidates using Voyage AI reranking models.
+- Generates grounded answers using only the retrieved passages.
+- Keeps in-text citations separate from downloadable original documents.
+- Shows the contribution of each retrieval stage on the Query page.
 
-La stessa piattaforma dati gestisce documenti, metadati, ricerca testuale,
-ricerca vettoriale, filtri e fusione delle classifiche. L'applicazione usa
-Voyage AI per gli embedding e il reranking e un provider LLM configurabile per
-comporre la risposta finale sui passaggi selezionati.
+## Architecture
 
-La pipeline principale e:
+The same data platform manages documents, metadata, text search, vector search,
+filters, and rank fusion. The application uses Voyage AI for embeddings and
+reranking, together with a configurable LLM provider that composes the final
+answer from the selected passages.
 
-1. estrazione e normalizzazione del documento;
-2. chunking e arricchimento dei metadati;
-3. generazione o gestione automatica degli embedding;
-4. retrieval keyword e semantico;
-5. fusione e reranking;
-6. costruzione del contesto;
-7. risposta grounded e accesso alle fonti originali.
+The main pipeline is:
 
-## Avvio locale
+1. document extraction and normalization;
+2. chunking and metadata enrichment;
+3. embedding generation or automated embedding management;
+4. keyword and semantic retrieval;
+5. rank fusion and reranking;
+6. context construction;
+7. grounded answer generation and access to original sources.
+
+## Run Locally
 
 ```bash
 python3 -m venv .venv
@@ -45,15 +47,15 @@ cp .env.example .env
 streamlit run app.py
 ```
 
-Compilare `.env` con la connessione MongoDB Atlas e le chiavi dei provider
-utilizzati. Il file `.env`, gli ambienti virtuali e i documenti caricati
-localmente sono esclusi dal repository.
+Configure `.env` with your MongoDB Atlas connection and the API keys for the
+providers you intend to use. The `.env` file, virtual environments, and locally
+uploaded documents are excluded from the repository.
 
-## Struttura del progetto
+## Project Structure
 
-- `app.py`: interfaccia Streamlit e orchestrazione della demo.
-- `src/`: ingestion, embedding, retrieval, reranking e configurazione.
-- `schemas/`: definizioni degli indici Atlas Search e Vector Search.
-- `prompts/`: prompt di sistema per la generazione grounded.
-- `tests/`: test della pipeline.
-- `scripts/`: strumenti diagnostici per configurazione e modelli.
+- `app.py`: Streamlit interface and demo orchestration.
+- `src/`: ingestion, embeddings, retrieval, reranking, and configuration.
+- `schemas/`: Atlas Search and Vector Search index definitions.
+- `prompts/`: system prompt used for grounded generation.
+- `tests/`: pipeline tests.
+- `scripts/`: diagnostic tools for configuration and models.
