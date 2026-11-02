@@ -123,3 +123,39 @@ def embed_voyage_contextualized(
         chunk_embeddings = [c["embedding"] for c in chunk_items]
         out.append(chunk_embeddings)
     return out
+
+
+def embed_voyage_multimodal(
+    inputs: list[list[dict[str, str]]],
+    *,
+    input_type: Literal["document", "query"] = "document",
+    timeout: float = 180.0,
+) -> list[list[float]]:
+    """Crea vettori multimodali da sequenze di parti text/image_base64."""
+    if not inputs:
+        return []
+    if not config.VOYAGE_API_KEY:
+        raise RuntimeError("Modalità multimodal: serve VOYAGE_API_KEY nel .env")
+    vectors: list[list[float]] = []
+    batch_size = 32  # margine per payload immagine entro i limiti API
+    for start in range(0, len(inputs), batch_size):
+        batch = inputs[start:start + batch_size]
+        data = post_json(
+            f"{config.VOYAGE_API_BASE}/multimodalembeddings",
+            payload={
+                "inputs": [{"content": parts} for parts in batch],
+                "model": config.VOYAGE_MULTIMODAL_MODEL,
+                "input_type": input_type,
+            },
+            headers=_headers(),
+            timeout=timeout,
+            operation="embedding multimodale",
+        )
+        batch_vectors = _ordered_embeddings(data)
+        if len(batch_vectors) != len(batch):
+            raise RuntimeError("Voyage AI ha restituito un numero inatteso di vettori multimodali.")
+        vectors.extend(batch_vectors)
+    for index, vector in enumerate(vectors):
+        if len(vector) != config.VOYAGE_MULTIMODAL_DIMENSIONS:
+            raise RuntimeError(f"Embedding multimodale #{index}: dimensione inattesa {len(vector)}.")
+    return vectors

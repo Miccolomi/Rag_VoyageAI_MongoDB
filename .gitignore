@@ -8,12 +8,15 @@ venv/
 .DS_Store
 .streamlit/secrets.toml
 data/*.pdf
+data/financebench_100/
 *.log
 .idea/
 .vscode/
 *.md
 !README.md
 !README.it.md
+!DEMO_PLAN.md
+!DEMO_QUERIES.md
 .claude/
 .pytest_cache/
 .coverage
@@ -21,3 +24,7 @@ htmlcov/
 build/
 dist/
 *.egg-info/
+
+# copie del .env con chiavi
+.env.*
+!.env.example

@@ -7,7 +7,7 @@
       "fields": {
         "content": { "type": "string", "analyzer": "lucene.standard" },
         "title": { "type": "string" },
-        "author": { "type": "string" },
+        "author": { "type": "token" },
         "subject": { "type": "string" },
         "keywords": { "type": "string" },
         "document_id": { "type": "token" },
@@ -22,7 +22,8 @@
         "status": { "type": "token" },
         "year": { "type": "number" },
         "tags": { "type": "token" },
-        "file_type": { "type": "token" }
+        "file_type": { "type": "token" },
+        "embedding_mode": { "type": "token" }
       }
     }
   }

@@ -7,15 +7,19 @@ e Atlas Vector Search (autoEmbed con Voyage) genera i vettori automaticamente.
 from __future__ import annotations
 
 import hashlib
+import base64
 import io
+import re
 import math
 import mimetypes
+import subprocess
+import tempfile
+import time
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
 import fitz  # PyMuPDF
-import pdfplumber
 import pytesseract
 import tiktoken
 from bson import ObjectId
@@ -37,8 +41,10 @@ if config.TESSERACT_CMD:
     pytesseract.pytesseract.tesseract_cmd = config.TESSERACT_CMD
 
 _TOKENIZER = tiktoken.get_encoding("cl100k_base")
-_SCHEMA_VERSION = "pdf_chunks_v3_1"
-_CONTEXT_MAX_TOKENS = 120_000
+_SCHEMA_VERSION = "pdf_chunks_v4"
+# Pre-chunked input is limited to 32K tokens per request. We keep local chunk
+# boundaries to preserve page/slide citations, so backend auto-chunking is off.
+_CONTEXT_MAX_TOKENS = 32_000
 
 
 # ---------------------------------------------------------------- helpers ----
@@ -277,31 +283,6 @@ def _ocr_page(page: fitz.Page) -> str | None:
         return None
 
 
-def _extract_tables(path: Path, page_idx: int) -> list[str]:
-    out: list[str] = []
-    try:
-        with pdfplumber.open(path) as pdf:
-            if page_idx >= len(pdf.pages):
-                return out
-            page = pdf.pages[page_idx]
-            tables = page.extract_tables() or []
-            for tbl in tables:
-                rows = []
-                for row in tbl:
-                    cells = [(c or "").strip() for c in row]
-                    rows.append("| " + " | ".join(cells) + " |")
-                if rows:
-                    if len(rows) > 1:
-                        cols = rows[0].count("|") - 1
-                        sep = "| " + " | ".join(["---"] * cols) + " |"
-                        rows.insert(1, sep)
-                    out.append("\n".join(rows))
-    except Exception:
-        # pdfplumber può fallire su PDF corrotti/criptati: non blocchiamo l'ingest.
-        pass
-    return out
-
-
 # --------------------------------------------------------------- parsing ----
 
 _MARKITDOWN_EXTS = {".docx", ".doc", ".pptx", ".ppt", ".xlsx", ".xls",
@@ -310,8 +291,7 @@ _MARKITDOWN_EXTS = {".docx", ".doc", ".pptx", ".ppt", ".xlsx", ".xls",
 
 def parse_with_markitdown(path: Path) -> tuple[dict[str, Any], list[dict[str, Any]]]:
     """Parsing per formati non-PDF tramite MarkItDown (Microsoft).
-    Ritorna markdown come 1 sola "pagina" — la struttura sezione/slide è preservata
-    nei marker markdown del testo (##, ###, ecc.) che il chunker rispetta.
+    Ritorna markdown a livello documento: non assegna una pagina fittizia.
     """
     from markitdown import MarkItDown
     md_converter = MarkItDown()
@@ -322,52 +302,132 @@ def parse_with_markitdown(path: Path) -> tuple[dict[str, Any], list[dict[str, An
         "author": None, "subject": None, "keywords": None,
         "creator": "MarkItDown", "producer": "MarkItDown",
         "creation_date": None, "modification_date": None,
-        "total_pages": 1,
+        "total_pages": None,
         "format": path.suffix.lstrip(".").upper(),
     }
     pages = [{
-        "page_number": 1, "text": text, "tables": [], "content_type": "text",
+        "page_number": None, "text": text, "tables": [], "content_type": "text",
     }]
     return meta, pages
 
 
-def parse_document(path: Path) -> tuple[dict[str, Any], list[dict[str, Any]]]:
-    """Dispatch per estensione: PDF → parser nativo, altri → MarkItDown."""
+def _office_as_pdf(path: Path, out_dir: Path) -> Path:
+    """Converte un file Office in PDF mantenendo pagine/slide e grafica."""
+    executable = config.OFFICE_CONVERTER or "soffice"
+    try:
+        subprocess.run(
+            [executable, "--headless", "--convert-to", "pdf", "--outdir", str(out_dir), str(path)],
+            check=True, capture_output=True, text=True, timeout=180,
+        )
+    except Exception as exc:
+        raise RuntimeError(
+            "Per ingestion visiva di DOCX/PPTX serve LibreOffice (soffice) disponibile nel PATH."
+        ) from exc
+    converted = out_dir / f"{path.stem}.pdf"
+    if not converted.is_file():
+        raise RuntimeError(f"Conversione Office in PDF non riuscita per {path.name}.")
+    return converted
+
+
+def parse_document(
+    path: Path, *, include_visuals: bool = False
+) -> tuple[dict[str, Any], list[dict[str, Any]]]:
+    """PDF nativo; Office via PDF per mantenere slide/pagine, MarkItDown fallback."""
     ext = path.suffix.lower()
     if ext == ".pdf":
-        return parse_pdf(path)
+        return parse_pdf(path, include_visuals=include_visuals)
+    if ext in {".docx", ".doc", ".pptx", ".ppt"}:
+        try:
+            office_meta, office_pages = parse_with_markitdown(path)
+            with tempfile.TemporaryDirectory(prefix="rag-office-") as tmp:
+                converted = _office_as_pdf(path, Path(tmp))
+                meta, pages = parse_pdf(converted, include_visuals=include_visuals)
+                meta["title"] = office_meta.get("title") or meta.get("title") or path.stem
+                meta["format"] = ext.lstrip(".").upper()
+                meta["source_parser"] = "MarkItDown+LibreOffice+PyMuPDF"
+                # MarkItDown preserva intestazioni e struttura Office; la resa PDF
+                # fornisce il legame puntuale a pagina/slide e le immagini.
+                if pages and office_pages and office_pages[0].get("text"):
+                    pages[0]["office_structure_text"] = office_pages[0]["text"]
+                return meta, pages
+        except Exception:
+            if include_visuals:
+                raise
     if ext in _MARKITDOWN_EXTS:
         return parse_with_markitdown(path)
     raise ValueError(f"Estensione non supportata: {ext}")
 
 
-def parse_pdf(path: Path) -> tuple[dict[str, Any], list[dict[str, Any]]]:
+def _clean_markdown(text: str) -> str:
+    """Toglie la formattazione visiva (grassetti, corsivi, a capo HTML) e lascia la struttura."""
+    text = text.replace("<br>", " ")
+    text = re.sub(r"\*\*", "", text)
+    text = re.sub(r"(?m)^(#+\s*)_(.+?)_\s*$", r"\1\2", text)
+    text = re.sub(r"[ \t]+\n", "\n", text)
+    return re.sub(r"\n{3,}", "\n\n", text).strip()
+
+
+def _pdf_markdown(doc: fitz.Document) -> list[str] | None:
+    """Testo di ogni pagina in Markdown con pymupdf4llm: titoli e tabelle con le colonne.
+
+    Le tabelle dei bilanci restano righe con intestazione (anni), invece di numeri in fila.
+    None se pymupdf4llm non è installato o fallisce: si usa il testo semplice di PyMuPDF.
+    """
+    try:
+        import pymupdf4llm
+        chunks = pymupdf4llm.to_markdown(doc, page_chunks=True, use_ocr=False, header=False, footer=False,
+                                         show_progress=False)
+        return [_clean_markdown(c.get("text") or "") for c in chunks]
+    except Exception as exc:
+        print(f"[ingestion] pymupdf4llm non disponibile ({type(exc).__name__}: {exc}); uso il testo semplice.")
+        return None
+
+
+def parse_pdf(
+    path: Path, *, include_visuals: bool = False
+) -> tuple[dict[str, Any], list[dict[str, Any]]]:
     """Ritorna (metadati_documento, lista_pagine).
 
-    Ogni pagina: { page_number, text, tables, content_type }
-    content_type pagina: "text" oppure "ocr" (le tabelle diventano chunk separati).
+    Ogni pagina: { page_number, text, tables, content_type }. Il testo è Markdown:
+    le tabelle sono già dentro il testo, con le intestazioni delle colonne.
+    content_type pagina: "text" oppure "ocr".
     """
     doc = fitz.open(path)
     meta = _extract_pdf_metadata(doc)
+    markdown = _pdf_markdown(doc)
+    meta["source_parser"] = "pymupdf4llm" if markdown is not None else "PyMuPDF"
 
     pages: list[dict[str, Any]] = []
     for i, page in enumerate(doc):
-        text = page.get_text("text") or ""
+        text = markdown[i] if markdown is not None and i < len(markdown) else (page.get_text("text") or "")
         content_type = "text"
-        # Fallback OCR: pagina con pochissimo testo ma con immagini → scansione
+        # Pagina scansionata: quasi niente testo ma immagini. OCR solo se Tesseract è installato.
         if len(text.strip()) < 30 and page.get_images(full=False):
             ocr_text = _ocr_page(page)
             if ocr_text is not None:
                 text = ocr_text
                 content_type = "ocr"
-            # Se OCR non disponibile, manteniamo il poco testo estratto da PyMuPDF.
 
-        pages.append({
+        page_data = {
             "page_number": i + 1,
             "text": text,
-            "tables": _extract_tables(path, i),
+            "tables": [],
             "content_type": content_type,
-        })
+        }
+        if include_visuals:
+            pix = page.get_pixmap(dpi=110, alpha=False)
+            image = Image.open(io.BytesIO(pix.tobytes("png"))).convert("RGB")
+            max_pixels = 4_000_000
+            if image.width * image.height > max_pixels:
+                scale = (max_pixels / (image.width * image.height)) ** 0.5
+                image = image.resize(
+                    (int(image.width * scale), int(image.height * scale)),
+                    Image.Resampling.LANCZOS,
+                )
+            visual = io.BytesIO()
+            image.save(visual, format="JPEG", quality=90, optimize=True)
+            page_data["visual_image"] = visual.getvalue()
+        pages.append(page_data)
     doc.close()
     return meta, pages
 
@@ -393,6 +453,112 @@ def _chunk_text(text: str, size: int, overlap: int) -> list[str]:
     return chunks
 
 
+def _tokens(text: str) -> int:
+    return len(_TOKENIZER.encode(text))
+
+
+def _markdown_blocks(text: str) -> list[tuple[str, str]]:
+    """Blocchi (tipo, testo): titoli, tabelle intere, paragrafi."""
+    blocks: list[tuple[str, str]] = []
+    para: list[str] = []
+    table: list[str] = []
+
+    def flush() -> None:
+        if para:
+            blocks.append(("text", "\n".join(para).strip()))
+            para.clear()
+        if table:
+            blocks.append(("table", "\n".join(table)))
+            table.clear()
+
+    for line in text.splitlines():
+        stripped = line.strip()
+        if stripped.startswith("|"):
+            if para:
+                blocks.append(("text", "\n".join(para).strip()))
+                para.clear()
+            table.append(stripped)
+            continue
+        if table:
+            blocks.append(("table", "\n".join(table)))
+            table.clear()
+        if stripped.startswith("#"):
+            flush()
+            blocks.append(("heading", stripped))
+        elif not stripped:
+            flush()
+        else:
+            para.append(line)
+    flush()
+    return [b for b in blocks if b[1]]
+
+
+def _split_table(table: str, size: int, prefix: str) -> list[str]:
+    """Tabella troppo lunga: pezzi di righe, ognuno con l'intestazione delle colonne."""
+    lines = table.splitlines()
+    sep = next((i for i, l in enumerate(lines) if re.fullmatch(r"\|?\s*:?-{3,}.*", l)), None)
+    header = lines[: sep + 1] if sep is not None and sep < 4 else lines[:1]
+    # Le intestazioni con gli anni a volte stanno subito dopo il separatore: vanno ripetute anche loro.
+    for line in lines[len(header): len(header) + 2]:
+        if any(re.fullmatch(r"(19|20)\d\d", cell.strip()) for cell in line.strip("|").split("|")):
+            header.append(line)
+        else:
+            break
+    body = lines[len(header):]
+    base = (prefix + "\n" if prefix else "") + "\n".join(header)
+    pieces, current = [], []
+    for row in body:
+        if current and _tokens(base + "\n" + "\n".join(current + [row])) > size:
+            pieces.append(base + "\n" + "\n".join(current))
+            current = []
+        current.append(row)
+    if current or not pieces:
+        pieces.append(base + "\n" + "\n".join(current))
+    return pieces
+
+
+def _chunk_markdown(text: str, size: int, overlap: int) -> list[str]:
+    """Chunk che rispettano la struttura: non spezzano una tabella a metà riga,
+    ripetono l'intestazione delle colonne e il titolo della sezione in ogni pezzo."""
+    if not text.strip():
+        return []
+    chunks: list[str] = []
+    current: list[str] = []
+    heading = ""
+
+    def emit() -> None:
+        if current:
+            chunks.append("\n\n".join(current).strip())
+            current.clear()
+
+    for kind, block in _markdown_blocks(text):
+        if kind == "heading":
+            heading = block
+            if current and _tokens("\n\n".join(current + [block])) > size:
+                emit()
+            current.append(block)
+            continue
+        candidate = "\n\n".join(current + [block])
+        if _tokens(candidate) <= size:
+            current.append(block)
+            continue
+        if current and current[-1] == heading:
+            current.pop()  # il titolo va col blocco che introduce, non in fondo al chunk precedente
+        emit()
+        prefix = heading if heading and heading != block else ""
+        with_prefix = (prefix + "\n\n" if prefix else "") + block
+        if _tokens(with_prefix) <= size:
+            current.append(with_prefix)
+        elif kind == "table":
+            chunks.extend(_split_table(block, size, prefix))
+        else:
+            for piece in _chunk_text(block, size, overlap):
+                chunks.append((prefix + "\n\n" if prefix else "") + piece)
+    emit()
+    # Un titolo rimasto da solo non serve alla ricerca.
+    return [c for c in chunks if not re.fullmatch(r"#+[^\n]*", c)]
+
+
 def build_chunks(
     pages: list[dict[str, Any]],
     *,
@@ -402,13 +568,14 @@ def build_chunks(
     """Flatten pagine → lista chunk con (content, page_number, content_type)."""
     out: list[dict[str, Any]] = []
     for page in pages:
-        for piece in _chunk_text(page["text"], size, overlap):
+        for piece in _chunk_markdown(page["text"], size, overlap):
             out.append({
                 "content": piece,
                 "page_number": page["page_number"],
                 "page_start": page["page_number"],
                 "page_end": page["page_number"],
-                "content_type": page["content_type"],
+                "content_type": "table" if page["content_type"] == "text" and re.search(r"(?m)^\|", piece)
+                                else page["content_type"],
             })
         # Ogni tabella diventa un chunk a sé (preserva la struttura)
         for tbl in page["tables"]:
@@ -419,6 +586,23 @@ def build_chunks(
                 "page_end": page["page_number"],
                 "content_type": "table",
             })
+        if page.get("visual_image"):
+            out.append({
+                "content": page["text"] or f"Pagina {page['page_number']} del documento {page.get('filename', '')}",
+                "page_number": page["page_number"],
+                "page_start": page["page_number"],
+                "page_end": page["page_number"],
+                "content_type": "visual_page",
+                "visual_image": page["visual_image"],
+            })
+        if page.get("office_structure_text") and page["page_number"] == 1:
+            out.extend({
+                "content": piece,
+                "page_number": None,
+                "page_start": None,
+                "page_end": None,
+                "content_type": "office_structure",
+            } for piece in _chunk_text(page["office_structure_text"], size, overlap))
     return out
 
 
@@ -454,15 +638,17 @@ def ingest_pdf(
     mode:          "auto"    → autoEmbed lato Atlas.
                    "manual"  → embedding via Voyage /embeddings in `embedding` field.
                    "context" → chunk locali page-aware contestualizzati insieme via
-                               Voyage /contextualizedembeddings (fino a 120K token/doc).
+                               Voyage /contextualizedembeddings (limite stimato 32K token/doc
+                               per i chunk già suddivisi usati qui).
     user_metadata: dict opzionale di override forniti dall'utente in upload.
                    Chiavi supportate: title, author, category, status, language,
                    year (int), tags (list[str]), file_type.
                    Sovrascrivono i metadati estratti dal PDF; vengono propagati
                    identici a TUTTI i chunk del documento.
     """
+    started_at = time.perf_counter()
     mode = (mode or config.EMBED_MODE).lower()
-    if mode not in ("auto", "manual", "context"):
+    if mode not in ("auto", "manual", "context", "multimodal"):
         raise ValueError(f"mode non valido: {mode}")
     user_metadata = dict(user_metadata or {})
     duplicate_policy = (
@@ -476,36 +662,49 @@ def ingest_pdf(
         raise FileNotFoundError(path)
 
     doc_id = _sha256_file(path)
-    existing_chunks = collection.count_documents({"document_id": doc_id}, limit=1)
+    mode_query = {"document_id": doc_id, "embedding_mode": mode}
+    existing_chunks = collection.count_documents(mode_query, limit=1)
     if existing_chunks and duplicate_policy == "skip":
         return {
             "document_id": doc_id,
             "filename": path.name,
             "chunks_inserted": 0,
             "skipped": True,
-            "reason": "documento gia' presente",
+            "reason": f"documento gia' indicizzato in modalita' {mode}",
             "duplicate_policy": duplicate_policy,
+            "duration_seconds": round(time.perf_counter() - started_at, 2),
         }
     if existing_chunks and duplicate_policy == "replace":
         existing_refs = list(collection.find(
-            {"document_id": doc_id},
+            mode_query,
             {"gridfs_file_id": 1, "_id": 0},
         ))
-        collection.delete_many({"document_id": doc_id})
+        collection.delete_many(mode_query)
         if storage == "gridfs":
             fs = GridFS(db, collection=config.MONGODB_GRIDFS_BUCKET)
             for ref in {r.get("gridfs_file_id") for r in existing_refs if r.get("gridfs_file_id")}:
                 try:
-                    fs.delete(ObjectId(ref))
+                    still_referenced = collection.count_documents(
+                        {"document_id": doc_id, "gridfs_file_id": ref}, limit=1
+                    )
+                    if not still_referenced:
+                        fs.delete(ObjectId(ref))
                 except Exception:
                     pass
 
-    pdf_meta, pages = parse_document(path)
+    pdf_meta, pages = parse_document(path, include_visuals=(mode == "multimodal"))
 
     storage_ref: dict[str, Any] = {"storage": storage}
     if storage == "gridfs":
-        gridfs_id = upload_to_gridfs(db, config.MONGODB_GRIDFS_BUCKET, path)
-        storage_ref["gridfs_file_id"] = str(gridfs_id)
+        existing_file = collection.find_one(
+            {"document_id": doc_id, "gridfs_file_id": {"$exists": True}},
+            {"gridfs_file_id": 1, "_id": 0},
+        )
+        if existing_file:
+            storage_ref["gridfs_file_id"] = existing_file["gridfs_file_id"]
+        else:
+            gridfs_id = upload_to_gridfs(db, config.MONGODB_GRIDFS_BUCKET, path)
+            storage_ref["gridfs_file_id"] = str(gridfs_id)
     elif storage == "s3":
         storage_ref["s3_uri"] = None
         storage_ref["note"] = "S3 upload non configurato in questa demo"
@@ -562,9 +761,9 @@ def ingest_pdf(
         )
         if estimated_tokens > _CONTEXT_MAX_TOKENS:
             raise RuntimeError(
-                "Documento troppo lungo per voyage-context-4: "
+                "Documento oltre il limite pre-chunked di voyage-context-4 (32K token): "
                 f"circa {estimated_tokens} token, limite {_CONTEXT_MAX_TOKENS}. "
-                "Usa la modalità manual oppure suddividi il documento."
+                "Usa la modalità manual/multimodal oppure riduci il documento."
             )
         contextualized = embed_voyage_contextualized(
             [[c["content"] for c in raw_chunks]],
@@ -575,6 +774,29 @@ def ingest_pdf(
             embeddings,
             expected_count=len(raw_chunks),
             expected_dimensions=config.VOYAGE_CONTEXT_DIMENSIONS,
+        )
+    elif mode == "multimodal" and raw_chunks:
+        from .embeddings import embed_voyage_multimodal
+        mm_inputs = []
+        for chunk in raw_chunks:
+            image_bytes = chunk.get("visual_image")
+            text_for_embedding = chunk["content"] or "Contenuto visivo del documento."
+            if image_bytes:
+                text_tokens = _TOKENIZER.encode(text_for_embedding)
+                if len(text_tokens) > 12_000:
+                    text_for_embedding = _TOKENIZER.decode(text_tokens[:12_000])
+            parts = [{"type": "text", "text": text_for_embedding}]
+            if image_bytes:
+                parts.append({
+                    "type": "image_base64",
+                    "image_base64": "data:image/jpeg;base64," + base64.b64encode(image_bytes).decode("ascii"),
+                })
+            mm_inputs.append(parts)
+        embeddings = embed_voyage_multimodal(mm_inputs, input_type="document")
+        _validate_embeddings(
+            embeddings,
+            expected_count=len(raw_chunks),
+            expected_dimensions=config.VOYAGE_MULTIMODAL_DIMENSIONS,
         )
 
     # Calcolati sui chunk effettivi che verranno salvati.
@@ -634,25 +856,32 @@ def ingest_pdf(
             "ingestion_pipeline_version": config.INGESTION_PIPELINE_VERSION,
             "chunker_version": config.CHUNKER_VERSION,
             "embedding_mode": mode,
-            "embedding_model": (
-                config.VOYAGE_CONTEXT_MODEL
-                if mode == "context"
-                else config.VOYAGE_EMBED_MODEL
-            ),
+            "embedding_model": {
+                "auto": config.VOYAGE_EMBED_MODEL,
+                "manual": config.VOYAGE_EMBED_MODEL,
+                "context": config.VOYAGE_CONTEXT_MODEL,
+                "multimodal": config.VOYAGE_MULTIMODAL_MODEL,
+            }[mode],
             "embedding_input_type": "document",
             "context_strategy": {
                 "auto": "atlas_autoembed",
                 "manual": "independent_local_chunks",
                 "context": "page_aware_contextualized_chunks",
+                "multimodal": "voyage_multimodal_page_images",
             }[mode],
         }
-        if mode in ("manual", "context") and embeddings:
-            doc["embedding"] = embeddings[idx]
-            doc["embedding_dimensions"] = (
-                config.VOYAGE_CONTEXT_DIMENSIONS
-                if mode == "context"
-                else config.VOYAGE_EMBED_DIMENSIONS
-            )
+        if mode in ("manual", "context", "multimodal") and embeddings:
+            vector_field = {
+                "manual": "embedding",
+                "context": "embedding_context",
+                "multimodal": "embedding_multimodal",
+            }[mode]
+            doc[vector_field] = embeddings[idx]
+            doc["embedding_dimensions"] = {
+                "manual": config.VOYAGE_EMBED_DIMENSIONS,
+                "context": config.VOYAGE_CONTEXT_DIMENSIONS,
+                "multimodal": config.VOYAGE_MULTIMODAL_DIMENSIONS,
+            }[mode]
             doc["embedding_dtype"] = "float"
         docs.append(_without_empty_fields(doc))
 
@@ -681,17 +910,18 @@ def ingest_pdf(
         "storage": storage_ref,
         "mode": mode,
         "embedding": {
-            "model": (
-                config.VOYAGE_CONTEXT_MODEL
-                if mode == "context"
-                else config.VOYAGE_EMBED_MODEL
-            ),
+            "model": {
+                "auto": config.VOYAGE_EMBED_MODEL,
+                "manual": config.VOYAGE_EMBED_MODEL,
+                "context": config.VOYAGE_CONTEXT_MODEL,
+                "multimodal": config.VOYAGE_MULTIMODAL_MODEL,
+            }[mode],
             "dimensions": (
                 config.VOYAGE_CONTEXT_DIMENSIONS
                 if mode == "context"
                 else (
-                    config.VOYAGE_EMBED_DIMENSIONS
-                    if mode == "manual"
+                    config.VOYAGE_EMBED_DIMENSIONS if mode == "manual"
+                    else config.VOYAGE_MULTIMODAL_DIMENSIONS if mode == "multimodal"
                     else None
                 )
             ),
@@ -699,15 +929,31 @@ def ingest_pdf(
                 "auto": "atlas_autoembed",
                 "manual": "independent_local_chunks",
                 "context": "page_aware_contextualized_chunks",
+                "multimodal": "voyage_multimodal_page_images",
             }[mode],
         },
         "user_metadata_provided": user_metadata,
         "effective_metadata_applied_to_chunks": effective_fields,
         "pdf_native_metadata": pdf_meta,
+        "file_size_bytes": path.stat().st_size,
+        "pages_processed": len(pages),
+        "pages_with_text": sum(bool(page.get("text", "").strip()) for page in pages),
+        "pages_ocr": sum(page.get("content_type") == "ocr" for page in pages),
+        "tables_detected": sum(len(re.findall(r"(?m)^\|[ :]*-{3,}", page.get("text") or "")) for page in pages),
+        "chunks_by_type": {
+            kind: sum(chunk.get("content_type") == kind for chunk in docs)
+            for kind in sorted({chunk.get("content_type", "text") for chunk in docs})
+        },
+        "duration_seconds": round(time.perf_counter() - started_at, 2),
     }
     if mode == "context":
         summary["context_note"] = (
             f"Modalità context page-aware: voyage-context-4 ha contestualizzato "
             f"{len(docs)} chunk locali conservando pagina e tipo contenuto."
+        )
+    if mode == "multimodal":
+        summary["multimodal_note"] = (
+            f"{sum(c.get('content_type') == 'visual_page' for c in raw_chunks)} pagine/slide "
+            "abbinate al testo estratto e vettorizzate con Voyage multimodale."
         )
     return summary

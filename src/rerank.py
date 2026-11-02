@@ -7,6 +7,14 @@ from . import config
 from .voyage_http import post_json
 
 
+def format_rerank_query(query: str, instructions: str | None = None) -> str:
+    """Aggiunge criteri facoltativi solo alla richiesta del reranker."""
+    instructions = (instructions or "").strip()
+    if not instructions:
+        return query
+    return f"Domanda:\n{query}\n\nIstruzioni per ordinare i passaggi per rilevanza:\n{instructions}"
+
+
 def _format_rerank_document(doc: dict[str, Any], text_field: str) -> str:
     parts = []
     if doc.get("title"):
@@ -30,6 +38,7 @@ def rerank(
     top_n: int | None = None,
     model: str | None = None,
     text_field: str = "content",
+    instructions: str | None = None,
     timeout: float = 30.0,
 ) -> list[dict[str, Any]]:
     """Riordina `documents` rispetto a `query`. Ritorna i top-N con score.
@@ -46,7 +55,7 @@ def rerank(
 
     texts = [_format_rerank_document(d, text_field) for d in documents]
     payload = {
-        "query": query,
+        "query": format_rerank_query(query, instructions),
         "documents": texts,
         "model": model,
         "top_k": min(top_n, len(texts)),

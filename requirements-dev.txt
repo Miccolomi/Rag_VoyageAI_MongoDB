@@ -1,0 +1,4 @@
+-r requirements.txt
+# Solo per i test offline (nessuna connessione ad Atlas, Voyage o LLM)
+pytest>=8.0
+mongomock>=4.1

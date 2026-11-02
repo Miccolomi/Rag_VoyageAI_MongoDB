@@ -1,13 +1,18 @@
 pymongo>=4.10
 python-dotenv>=1.0
 pymupdf>=1.24
-pdfplumber>=0.11
+pymupdf4llm==1.28.2
 pytesseract>=0.3.10
 pillow>=10.0
 langdetect>=1.0.9
 tiktoken>=0.7
 httpx>=0.27
 anthropic>=0.40
-streamlit>=1.40
+streamlit>=1.65
 # MarkItDown per parsing Office (DOCX, XLSX, PPTX) + altri formati
 markitdown[docx,xlsx,pptx]>=0.1
+
+# Interfaccia web (server.py)
+starlette>=0.40
+uvicorn>=0.30
+python-multipart>=0.0.9

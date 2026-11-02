@@ -1,12 +1,12 @@
 {
-  "name": "pdf_chunks_vector_idx",
+  "name": "pdf_chunks_manual_idx",
   "type": "vectorSearch",
   "definition": {
     "fields": [
       {
         "type": "vector",
         "path": "embedding",
-        "numDimensions": 1024,
+        "numDimensions": 2048,
         "similarity": "cosine"
       },
       { "type": "filter", "path": "document_id" },
@@ -23,7 +23,8 @@
       { "type": "filter", "path": "status" },
       { "type": "filter", "path": "year" },
       { "type": "filter", "path": "tags" },
-      { "type": "filter", "path": "file_type" }
+      { "type": "filter", "path": "file_type" },
+      { "type": "filter", "path": "embedding_mode" }
     ]
   }
 }

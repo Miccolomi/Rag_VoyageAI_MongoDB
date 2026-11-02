@@ -1,0 +1,271 @@
+<!doctype html>
+<html lang="it">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>RAG Demo · MongoDB Atlas</title>
+  <link rel="stylesheet" href="/web/style.css">
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand">
+      <span class="logo" aria-hidden="true">◆</span>
+      <div>
+        <div class="brand-title">RAG Demo · MongoDB Atlas + Voyage AI</div>
+        <div class="brand-meta" id="meta">Connessione in corso…</div>
+      </div>
+    </div>
+    <button class="pill" id="status-pill" title="Mostra cosa è stato verificato">…</button>
+  </header>
+  <div id="health" class="health-panel" hidden></div>
+
+  <nav class="tabs" id="tabs">
+    <a href="#mongodb" data-page="mongodb">MongoDB dettagli</a>
+    <a href="#come" data-page="come">Come funziona</a>
+    <a href="#upload" data-page="upload">Upload</a>
+    <a href="#query" data-page="query">Query</a>
+    <a href="#agente" data-page="agente">Ricerca agentica</a>
+    <a href="#admin" data-page="admin">Admin</a>
+  </nav>
+
+  <main id="page"></main>
+
+  <template id="tpl-come">
+    <section class="hero">
+      <h1>Dai documenti a una risposta verificabile</h1>
+      <p class="lead">I documenti vengono spezzati in passaggi e indicizzati in MongoDB Atlas. A ogni domanda Atlas
+        cerca per parole e per significato nella stessa pipeline, fonde le classifiche e le riordina con il reranker
+        di Voyage AI. Il modello scrive la risposta citando solo quei passaggi.</p>
+    </section>
+    <div class="arch-head"><h2>L’architettura della demo</h2>
+      <a href="/web/architettura.html" target="_blank" class="small">Apri a tutto schermo ↗</a></div>
+    <p class="muted small" style="margin-top:0">Ricavata dal codice dell’applicazione. Passa sopra a un componente per vedere cosa fa; usa “Percorso” per seguire una domanda, il caricamento o la memoria dell’agente.</p>
+    <iframe class="arch-frame" src="/web/architettura.html" title="Architettura della demo" loading="lazy"></iframe>
+    <div class="grid2">
+      <div class="card">
+        <h3>Query · la RAG classica</h3>
+        <p>Una ricerca, una risposta. Mostra passo per passo cosa fa Atlas: i due motori, la fusione delle
+          classifiche, il reranking e quali passaggi arrivano al modello.</p>
+      </div>
+      <div class="card">
+        <h3>Ricerca agentica · controlla prima di rispondere</h3>
+        <p>L’agente cerca, verifica che le prove coprano ogni dato richiesto, cerca di nuovo ciò che manca, chiede
+          quando i documenti danno valori diversi per anni diversi e non risponde a memoria.</p>
+      </div>
+    </div>
+    <h2>Percorso consigliato per la demo</h2>
+    <ol class="steps-list">
+      <li><b>Query</b> · “Dove si trovano gli stabilimenti produttivi di 3M?” → risponde con un anno solo, quello che il reranker mette in cima.</li>
+      <li><b>Ricerca agentica</b>, stessa domanda → trova valori diversi in anni diversi e ti chiede quale anno vuoi.</li>
+      <li>Scegli un anno, poi chiedi <b>“E nel 2017?”</b> nella stessa sessione → l’agente usa la conversazione.</li>
+      <li><b>“Come si prepara la pizza napoletana?”</b> → i documenti non ne parlano: l’agente non risponde a memoria.</li>
+    </ol>
+    <h2>Perché MongoDB Atlas</h2>
+    <div class="grid3">
+      <div class="card"><h4>Un solo sistema</h4><p>Passaggi, metadati, vettori, file originali (GridFS) e memoria dell’agente nello stesso database.</p></div>
+      <div class="card"><h4>Ricerca ibrida nativa</h4><p>Ricerca testuale e vettoriale fuse con <code>$rankFusion</code> e riordinate con <code>$rerank</code> in un’unica aggregazione.</p></div>
+      <div class="card"><h4>Embedding gestiti</h4><p>Con la modalità <code>auto</code> Atlas genera e aggiorna i vettori Voyage direttamente nell’indice.</p></div>
+    </div>
+  </template>
+
+
+  <template id="tpl-mongo">
+    <section class="mx-hero">
+      <div class="mx-eyebrow">MongoDB per l’AI generativa</div>
+      <h1>I dati, la ricerca e la memoria dell’AI<br>in un’unica piattaforma</h1>
+      <p class="mx-lead">Un’applicazione RAG o agentica ha bisogno di dati operativi, ricerca per parole, ricerca per significato,
+        riordino per pertinenza, file originali e memoria delle conversazioni. Di solito sono cinque o sei sistemi da integrare e
+        tenere sincronizzati. Con MongoDB Atlas e i modelli Voyage AI sono un solo database e una sola query.</p>
+      <div class="mx-stats" id="mx-stats">
+        <div><b data-stat="chunks">—</b><span>passaggi indicizzati in questa demo</span></div>
+        <div><b data-stat="indexes">—</b><span>indici di ricerca sulla stessa collection</span></div>
+        <div><b>1</b><span>aggregazione: parole, significato, fusione e rerank</span></div>
+        <div><b>0</b><span>sistemi esterni da sincronizzare</span></div>
+      </div>
+    </section>
+
+    <h2 class="mx-h2">Meno pezzi da integrare</h2>
+    <p class="muted mx-sub">La stessa applicazione, costruita in due modi.</p>
+    <div class="mx-arch">
+      <div class="mx-arch-col">
+        <div class="mx-arch-title">Architettura tipica</div>
+        <div class="mx-stack">
+          <div class="mx-sys">Database operativo<span>dati e metadati</span></div>
+          <div class="mx-sys">Motore full-text<span>parole, codici, sigle</span></div>
+          <div class="mx-sys">Vector database<span>ricerca per significato</span></div>
+          <div class="mx-sys">Servizio di embedding<span>pipeline da mantenere</span></div>
+          <div class="mx-sys">Object storage<span>file originali</span></div>
+          <div class="mx-sys">Cache / store per la memoria<span>conversazioni dell’agente</span></div>
+        </div>
+        <div class="mx-pain">
+          <div>⚠ Job di sincronizzazione tra sistemi</div>
+          <div>⚠ Dati che si disallineano: il vettore non corrisponde più al testo</div>
+          <div>⚠ Sicurezza, backup e accessi da gestire per ogni sistema</div>
+          <div>⚠ La fusione dei risultati si scrive a mano nell’applicazione</div>
+        </div>
+      </div>
+      <div class="mx-arch-vs">→</div>
+      <div class="mx-arch-col mx-good">
+        <div class="mx-arch-title">Con MongoDB Atlas</div>
+        <div class="mx-atlas">
+          <div class="mx-atlas-name">MongoDB Atlas</div>
+          <div class="mx-atlas-grid">
+            <span>Documenti e metadati</span><span>Atlas Search</span><span>Atlas Vector Search</span>
+            <span>Embedding automatici</span><span>$rankFusion + $rerank</span><span>GridFS · file originali</span>
+            <span class="wide">Memoria e tracciabilità dell’agente</span>
+          </div>
+          <div class="mx-voyage">modelli Voyage AI · embedding e reranking</div>
+        </div>
+        <div class="mx-gain">
+          <div>✓ Un solo sistema da proteggere, monitorare e scalare</div>
+          <div>✓ Testo, vettori e metadati sempre allineati: stanno nello stesso documento</div>
+          <div>✓ Ricerca ibrida e reranking dentro il database, in una query</div>
+          <div>✓ Il team scrive l’applicazione, non le integrazioni</div>
+        </div>
+      </div>
+    </div>
+
+    <h2 class="mx-h2">Il modello documentale: un passaggio, tutto quello che serve</h2>
+    <p class="muted mx-sub">Passa sopra ai riquadri: ogni parte del documento alimenta una capacità diversa.</p>
+    <div class="mx-doc">
+      <pre class="mx-json"><span class="k">{</span>
+  <span data-f="meta">"document_id": "3M_2018_10K",</span>
+  <span data-f="meta">"filename": "3M_2018_10K.pdf",</span>
+  <span data-f="meta">"page_number": 46,</span>
+  <span data-f="meta">"year": 2018,  "category": "10-K",  "language": "en",</span>
+  <span data-f="text">"content": "### Cash Flows from Investing Activities
+             |(Millions)|2018|2017|2016|
+             |---|---|---|---|
+             |Purchases of PP&amp;E|(1,577)|(1,373)|(1,420)| …",</span>
+  <span data-f="text">"content_type": "table",</span>
+  <span data-f="vector">"embedding_mode": "auto",   // vettore gestito da Atlas</span>
+  <span data-f="file">"gridfs_file_id": ObjectId("…"),</span>
+  <span data-f="meta">"ingested_at": ISODate("2026-10-30T18:20:00Z")</span>
+<span class="k">}</span></pre>
+      <div class="mx-doc-cards">
+        <div class="mx-dc" data-f="text"><b>Testo e tabelle</b><span>Le tabelle restano tabelle: ogni riga legata agli anni dell’intestazione e al titolo della sezione. Atlas Search lo indicizza per parole: trova codici, sigle, voci contabili esatte.</span></div>
+        <div class="mx-dc" data-f="vector"><b>Significato</b><span>Atlas Vector Search lo indicizza per significato: una domanda in italiano trova il passaggio in inglese.</span></div>
+        <div class="mx-dc" data-f="meta"><b>Metadati</b><span>Anno, azienda, lingua, categoria: filtri applicati dentro la ricerca, non dopo. E puoi aggiungerne di nuovi senza migrazioni di schema.</span></div>
+        <div class="mx-dc" data-f="file"><b>File originale</b><span>Il PDF completo resta in MongoDB (GridFS): dalla risposta apri la pagina citata.</span></div>
+      </div>
+    </div>
+
+    <h2 class="mx-h2">Le capacità, una per una</h2>
+    <div class="mx-pillars">
+      <article class="mx-p">
+        <div class="mx-p-n">01</div>
+        <h3>Ricerca ibrida nativa</h3>
+        <p class="what"><b>Cosa fa.</b> Nella stessa aggregazione <code>$search</code> cerca per parole (BM25), <code>$vectorSearch</code> cerca per significato e <code>$rankFusion</code> fonde le due classifiche con la Reciprocal Rank Fusion.</p>
+        <p class="why"><b>Il valore.</b> Le parole esatte da sole non capiscono i sinonimi; i vettori da soli perdono codici e numeri. Insieme coprono entrambi, senza un motore esterno né codice di fusione da mantenere.</p>
+      </article>
+      <article class="mx-p">
+        <div class="mx-p-n">02</div>
+        <h3>Embedding automatici</h3>
+        <p class="what"><b>Cosa fa.</b> Con la modalità automatica Atlas genera i vettori con i modelli Voyage AI al momento dell’inserimento e li aggiorna quando il testo cambia.</p>
+        <p class="why"><b>Il valore.</b> Nessuna pipeline di embedding da costruire, scalare e monitorare. Il vettore non resta mai indietro rispetto al dato.</p>
+      </article>
+      <article class="mx-p">
+        <div class="mx-p-n">03</div>
+        <h3>Modelli Voyage AI</h3>
+        <p class="what"><b>Cosa fa.</b> Embedding testuali <code data-model="embed">voyage</code>, contestuali <code data-model="context">voyage-context</code> che leggono ogni passaggio nel contesto del documento, multimodali <code data-model="multimodal">voyage-multimodal</code> per pagine con grafici e slide.</p>
+        <p class="why"><b>Il valore.</b> Voyage AI fa parte di MongoDB: modelli di embedding e reranking tra i più accurati nei benchmark di recupero, scelti in base al contenuto, con un solo fornitore per database e modelli.</p>
+      </article>
+      <article class="mx-p">
+        <div class="mx-p-n">04</div>
+        <h3>Reranking nel database</h3>
+        <p class="what"><b>Cosa fa.</b> Lo stage <code>$rerank</code> rilegge domanda e candidati insieme con il modello <code data-model="rerank">rerank</code> e li riordina per pertinenza. Accetta istruzioni in linguaggio naturale, come “privilegia il rendiconto finanziario”.</p>
+        <p class="why"><b>Il valore.</b> Al modello arrivano i passaggi davvero utili: risposte più precise e meno testo da pagare. Se nessun passaggio è pertinente, l’applicazione non chiama il modello e non inventa.</p>
+      </article>
+      <article class="mx-p">
+        <div class="mx-p-n">05</div>
+        <h3>Memoria dell’agente</h3>
+        <p class="what"><b>Cosa fa.</b> Ogni sessione è un documento: domande, risposte, fonti, scelte dell’utente. Ogni ricerca dell’agente salva passi, valutazioni e decisioni.</p>
+        <p class="why"><b>Il valore.</b> L’agente capisce «E nel 2015?» perché ricorda la conversazione, anche riaprendola giorni dopo. E ogni risposta è ricostruibile passo per passo: un requisito per audit e governance.</p>
+      </article>
+      <article class="mx-p">
+        <div class="mx-p-n">06</div>
+        <h3>File originali con GridFS</h3>
+        <p class="what"><b>Cosa fa.</b> I documenti completi (PDF, Office, immagini) sono salvati in MongoDB, collegati ai passaggi che ne derivano.</p>
+        <p class="why"><b>Il valore.</b> Ogni citazione porta alla pagina originale. Se serve, i file possono stare in un object storage e MongoDB conserva il riferimento.</p>
+      </article>
+      <article class="mx-p">
+        <div class="mx-p-n">07</div>
+        <h3>Scala ed efficienza</h3>
+        <p class="what"><b>Cosa fa.</b> Indici HNSW per la ricerca approssimata, quantizzazione <code>scalar</code> e <code>binary</code> dei vettori, Search Node dedicati alla ricerca.</p>
+        <p class="why"><b>Il valore.</b> La quantizzazione riduce la memoria dell’indice fino a circa 4 volte (scalar) o 32 volte (binary). I Search Node scalano la ricerca senza toccare il carico operativo.</p>
+      </article>
+      <article class="mx-p">
+        <div class="mx-p-n">08</div>
+        <h3>Sicurezza e governance</h3>
+        <p class="what"><b>Cosa fa.</b> Ricerca e vettori ereditano la sicurezza del database: cifratura, controllo degli accessi per ruolo, audit, backup. I filtri sui metadati limitano cosa ogni utente può trovare.</p>
+        <p class="why"><b>Il valore.</b> I dati usati dall’AI non escono dal perimetro governato: una sola policy, non una per sistema.</p>
+      </article>
+      <article class="mx-p">
+        <div class="mx-p-n">09</div>
+        <h3>Dove serve</h3>
+        <p class="what"><b>Cosa fa.</b> Atlas gira su AWS, Microsoft Azure e Google Cloud, in tutte le principali regioni.</p>
+        <p class="why"><b>Il valore.</b> I dati restano nella regione scelta, vicino alle applicazioni e ai modelli che li usano, senza legarsi a un solo cloud.</p>
+      </article>
+    </div>
+
+    <h2 class="mx-h2">Una domanda, una sola query in Atlas</h2>
+    <div class="mx-pipe">
+      <div class="mx-ps"><span>1</span><b>$search</b><small>parole e codici</small></div>
+      <div class="mx-ps"><span>2</span><b>$vectorSearch</b><small>significato, anche tra lingue</small></div>
+      <div class="mx-ps"><span>3</span><b>$rankFusion</b><small>una classifica unica</small></div>
+      <div class="mx-ps"><span>4</span><b>$rerank</b><small>pertinenza con Voyage AI</small></div>
+      <div class="mx-ps out"><span>→</span><b>Modello</b><small>risposta con fonti verificabili</small></div>
+    </div>
+    <pre class="mx-code">db.pdf_chunks.aggregate([
+  { $rankFusion: {
+      input: { pipelines: {
+        text:   [ { $search:       { index: "pdf_chunks_text_idx", text: { query: domanda, path: "content" } } },
+                  { $limit: 50 } ],
+        vector: [ { $vectorSearch: { index: "pdf_chunks_vector_idx", path: "content", query: domanda,
+                                      numCandidates: 500, limit: 50, filter: { year: 2018 } } } ]
+      } },
+      combination: { weights: { text: 1, vector: 1 } }, scoreDetails: true } },
+  { $rerank: { query: { text: domanda }, path: "content", model: "rerank", numDocsToRerank: 50 } },
+  { $limit: 8 }
+])</pre>
+    <p class="muted small">Schema semplificato: la pipeline esatta di ogni domanda si legge nella pagina Query, sotto “Pipeline MQL”.</p>
+
+    <h2 class="mx-h2">Approfondimenti per i team tecnici</h2>
+    <details class="card mx-acc"><summary>Quale modalità di embedding scegliere</summary>
+      <table><thead><tr><th>Modalità</th><th>Cosa fa</th><th>Quando conviene</th></tr></thead><tbody>
+        <tr><td><b>auto</b></td><td>Atlas genera e aggiorna i vettori.</td><td>Il default: nessun codice di embedding nell’applicazione.</td></tr>
+        <tr><td><b>manual</b></td><td>L’applicazione chiama Voyage e salva i vettori nei documenti.</td><td>Serve pieno controllo su modello, versioni e momento del calcolo.</td></tr>
+        <tr><td><b>context</b></td><td>Ogni passaggio è rappresentato insieme al resto del documento.</td><td>Testi dove un paragrafo da solo è ambiguo: contratti, normative, manuali.</td></tr>
+        <tr><td><b>multimodal</b></td><td>Testo e immagine della pagina nello stesso vettore.</td><td>Slide, grafici, schemi: contenuti che si riconoscono anche visivamente.</td></tr>
+      </tbody></table>
+    </details>
+    <details class="card mx-acc"><summary>Quantizzazione: memoria contro precisione</summary>
+      <table><thead><tr><th>Tipo</th><th>Rappresentazione</th><th>Compromesso</th></tr></thead><tbody>
+        <tr><td><code>float</code></td><td>32 bit per dimensione</td><td>Massima fedeltà, più memoria.</td></tr>
+        <tr><td><code>scalar</code></td><td>8 bit per dimensione</td><td>Circa un quarto della memoria, perdita di precisione contenuta. Default degli embedding automatici.</td></tr>
+        <tr><td><code>binary</code></td><td>1 bit, con rescoring sui vettori originali</td><td>Memoria molto ridotta; il rescoring recupera precisione sui candidati.</td></tr>
+      </tbody></table>
+      <p class="small muted">Risparmi e qualità dipendono da modello, corpus e domande: si misurano sul proprio carico.</p>
+    </details>
+    <details class="card mx-acc"><summary>Top-K, Top-N e numCandidates</summary>
+      <table><thead><tr><th>Parametro</th><th>Dove agisce</th><th>Se lo aumenti</th></tr></thead><tbody>
+        <tr><td><code>numCandidates</code></td><td>Vicini esplorati da ogni ramo vettoriale</td><td>Più richiamo, più latenza.</td></tr>
+        <tr><td><b>Top-K</b></td><td>Risultati per ramo e dopo la fusione</td><td>Più candidati per il reranker.</td></tr>
+        <tr><td><b>Top-N</b></td><td>Passaggi inviati al modello dopo il rerank</td><td>Più contesto, ma anche più rumore e costo.</td></tr>
+      </tbody></table>
+      <p class="small muted">In questa demo <code>numCandidates</code> è max(10 × Top-K, 100); come punto di partenza MongoDB indica almeno 20 volte il limite.</p>
+    </details>
+    <details class="card mx-acc"><summary>Similarità vettoriale: cosine, dotProduct, euclidean</summary>
+      <p><b>cosine</b> confronta la direzione dei vettori ed è la scelta comune per gli embedding semantici, usata in questa demo. <b>dotProduct</b> considera anche la lunghezza: con vettori normalizzati ordina come cosine. <b>euclidean</b> misura la distanza in linea retta. La scelta segue le indicazioni del modello di embedding.</p>
+    </details>
+    <details class="card mx-acc"><summary>Filtri e indice vettoriale</summary>
+      <p>Gli indici vettoriali usano HNSW, un grafo che trova i vicini senza scorrere tutti i vettori; per collezioni piccole è disponibile anche la ricerca esatta. I campi di filtro (anno, azienda, lingua, permessi) sono dichiarati nell’indice e applicati <i>durante</i> la ricerca: i risultati rispettano sempre il filtro, senza perdere candidati.</p>
+    </details>
+    <details class="card mx-acc"><summary>Come vengono letti i documenti</summary>
+      <p>Voyage AI trasforma testo e immagini in vettori, ma prima qualcuno deve leggere il file. I PDF passano da <b>pymupdf4llm</b>, che restituisce titoli e tabelle con le loro colonne: nei bilanci ogni riga resta legata agli anni dell’intestazione, invece di diventare una fila di numeri. I passaggi non spezzano mai una tabella a metà riga e ripetono intestazioni e titolo della sezione. Word, Excel e HTML passano da <b>MarkItDown</b>. Tesseract interviene solo sulle pagine scansionate; LibreOffice solo per le immagini delle slide nella modalità multimodale.</p>
+    </details>
+  </template>
+
+  <script src="/web/app.js"></script>
+</body>
+</html>
