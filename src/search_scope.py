@@ -4,10 +4,9 @@ from __future__ import annotations
 import json
 from concurrent.futures import ThreadPoolExecutor
 
-
 from . import config
 from .indexes import _canonical, index_specs
-from .retrieval import EMBED_MODES, fusion_weights, query_vector_for_mode
+from .retrieval import EMBED_MODES, embed_query, fusion_weights
 
 
 MODE_LABELS = {
@@ -81,8 +80,8 @@ MODE_DESCRIPTIONS = {
                 f"Voyage ({config.VOYAGE_CONTEXT_MODEL}) calcola ogni vettore tenendo conto degli altri "
                 "passaggi del documento."),
     "multimodal": ("Testo e immagini delle pagine",
-                   f"Ogni pagina o slide viene rappresentata anche come immagine con {config.VOYAGE_MULTIMODAL_MODEL}: "
-                   "si possono trovare grafici, diagrammi e schermate."),
+                   f"Ogni pagina o slide è un solo passaggio: immagine e testo nello stesso vettore "
+                   f"({config.VOYAGE_MULTIMODAL_MODEL}). Si trovano anche grafici, diagrammi e schermate."),
 }
 
 
@@ -108,31 +107,6 @@ def save_active_mode(mode: str) -> None:
     )
 
 
-def chunk_counts_by_mode() -> dict[str, int]:
-    """Numero di chunk per modalità, per mostrare cosa è già caricato."""
-    rows = config.get_collection().aggregate([
-        {"$group": {"_id": "$embedding_mode", "count": {"$sum": 1}}},
-    ])
-    return {row["_id"]: row["count"] for row in rows if row["_id"] in EMBED_MODES}
-
-
-_PREVIEW: dict[str, tuple[float, dict]] = {}
-
-
-def preview_scope(scope: str) -> dict:
-    """Stato della modalità, riletto al massimo ogni 30 secondi (senza dipendere da Streamlit)."""
-    import time
-    hit = _PREVIEW.get(scope)
-    if hit and time.monotonic() - hit[0] < 30:
-        return hit[1]
-    info = inspect_scope(scope)
-    _PREVIEW[scope] = (time.monotonic(), info)
-    return info
-
-
-preview_scope.clear = _PREVIEW.clear  # type: ignore[attr-defined]
-
-
 def require_scope(scope: str) -> dict:
     """Rilegge lo stato al clic: non esclude silenziosamente indici non pronti."""
     info = inspect_scope(scope)
@@ -156,9 +130,9 @@ def prepare_vectors(query: str, modes: list[str]) -> dict[str, list[float]]:
     if not targets:
         return {}
     if len(targets) == 1:
-        return {targets[0]: query_vector_for_mode(query, targets[0])}
+        return {targets[0]: embed_query(query, targets[0])}
     with ThreadPoolExecutor(max_workers=len(targets)) as pool:
-        futures = {mode: pool.submit(query_vector_for_mode, query, mode) for mode in targets}
+        futures = {mode: pool.submit(embed_query, query, mode) for mode in targets}
         return {mode: future.result() for mode, future in futures.items()}
 
 
@@ -176,31 +150,6 @@ def dedup_caption() -> str:
     return ("Lo stesso passaggio salvato in più modalità viene unito in un solo risultato prima del reranking."
             if config.HYBRID_DEDUP else
             "Le copie dello stesso passaggio salvate in modalità diverse restano risultati separati.")
-
-
-def render_scope(info: dict, *, executed: bool = False) -> None:
-    import streamlit as st
-    st.markdown("#### Dove ha cercato questa esecuzione" if executed else "#### Dove cercherà la domanda")
-    if len(info["modes"]) == 1:
-        title, _ = MODE_DESCRIPTIONS.get(info["modes"][0], (info["modes"][0], ""))
-        st.markdown(f"Modalità attiva **`{info['modes'][0]}`** · {title}. "
-                    "I documenti caricati in altre modalità non vengono cercati.")
-    st.markdown(f"Database **`{info['database']}`** · collection **`{info['collection']}`**")
-    st.write(f"Ricerca per parole: indice `{info['text_index']}` sul testo estratto dei documenti inclusi.")
-    st.dataframe(info["rows"], hide_index=True, use_container_width=True)
-    st.caption("I conteggi indicano chunk nella collection, prima dei filtri: non file, risultati trovati o chunk già disponibili nell'indice. "
-               "L'inventario si aggiorna entro 30 secondi ed è riletto a ogni esecuzione.")
-    st.write("Ricerca per significato: un percorso per ogni modalità inclusa, con il suo indice e il suo modello. "
-             "In multimodal la domanda testuale viene confrontata anche con gli embedding delle pagine visive. "
-             "Atlas unisce le classifiche con $rankFusion; Voyage riordina i candidati e il LLM riceve i passaggi selezionati.")
-    st.caption("I vettori di modelli diversi restano separati. " + weights_caption(info["modes"]) + " "
-               + dedup_caption() + " Reranker e LLM ricevono il testo estratto, non le immagini.")
-    if info["unavailable"]:
-        st.warning("Indici richiesti non interrogabili: " + ", ".join(info["unavailable"]) + ". Completa il setup in Admin.")
-    if info.get("mismatched"):
-        st.warning("Definizioni degli indici difformi dalla configurazione: " + ", ".join(info["mismatched"]) + ". Controlla il piano in Admin.")
-    if info["unclassified"]:
-        st.warning(f"{info['unclassified']} chunk non hanno una modalità riconosciuta e sono esclusi. Verifica l'ingestion.")
 
 
 def pipeline_code(pipeline: list, info: dict) -> str:

@@ -17,3 +17,24 @@ def test_verifica_componenti(monkeypatch):
     names = {c["name"]: c for c in out["checks"]}
     assert out["ok"] is False
     assert names["Documenti"]["ok"] is False and "RBAC" in names["Modello della risposta"]["detail"]
+
+
+def test_errori_mostrati_senza_indirizzi_web():
+    exc = RuntimeError("Command failed. See https://www.mongodb.com/docs/x for details; anche www.esempio.it")
+    message = web_services.public_error(exc)
+    assert message.startswith("RuntimeError: Command failed.")
+    assert "http" not in message and "www." not in message
+
+
+def test_flusso_ndjson_toglie_gli_indirizzi_dagli_errori():
+    import asyncio, json
+    import server
+
+    def events():
+        yield {"type": "error", "message": "Atlas: vedi https://example.com/errore"}
+        raise RuntimeError("rotto, vedi http://example.com")
+
+    async def collect():
+        return [chunk async for chunk in server._stream(events()).body_iterator]
+    lines = [json.loads(line) for line in asyncio.run(collect())]
+    assert all("http" not in e["message"] for e in lines) and len(lines) == 2

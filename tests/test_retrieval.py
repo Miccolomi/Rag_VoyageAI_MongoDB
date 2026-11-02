@@ -68,7 +68,7 @@ def test_pipeline_solo_testo_invariata():
 def test_nessuna_chiamata_embedding_se_i_vettori_sono_forniti(monkeypatch):
     def fail(*args, **kwargs):
         raise AssertionError("embedding non atteso")
-    monkeypatch.setattr(retrieval, "_query_vector", fail)
+    monkeypatch.setattr(retrieval, "embed_query", fail)
     build_pipeline("q", top_k=10, embed_mode="all", modes=MODES, query_vectors=VECTORS)
 
 

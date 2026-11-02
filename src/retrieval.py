@@ -40,7 +40,7 @@ _SEARCH_FILTER_FIELDS = {
 
 # -------------------------------------------------------- stage builders ----
 
-def _query_vector(query: str, embed_mode: str) -> list[float]:
+def embed_query(query: str, embed_mode: str) -> list[float]:
     """Embed la query con il modello coerente alla modalità di indicizzazione."""
     if embed_mode == "manual":
         return embed_voyage([query], input_type="query")[0]
@@ -53,11 +53,7 @@ def _query_vector(query: str, embed_mode: str) -> list[float]:
         return embed_voyage_multimodal(
             [[{"type": "text", "text": query}]], input_type="query"
         )[0]
-    raise ValueError(f"_query_vector non gestisce embed_mode={embed_mode!r}")
-
-
-# Nome pubblico per gli altri moduli.
-query_vector_for_mode = _query_vector
+    raise ValueError(f"embed_query non gestisce embed_mode={embed_mode!r}")
 
 
 def _vector_stage(
@@ -83,7 +79,7 @@ def _vector_stage(
     else:
         # Se disponibile, riusa lo stesso vettore tra retrieval e visualizzazione
         # della pipeline; altrimenti lo calcola qui.
-        base["queryVector"] = query_vector or _query_vector(query, embed_mode)
+        base["queryVector"] = query_vector or embed_query(query, embed_mode)
     mode_filter = {"embedding_mode": embed_mode}
     if filters:
         base["filter"] = {"$and": [filters, mode_filter]}
@@ -154,7 +150,18 @@ def _residual_match_filters(filters: dict[str, Any] | None) -> dict[str, Any] | 
 
 # --------------------------------------------------------- projection ----
 
-_PROJECT_COMMON: dict[str, Any] = {
+# Testo passato a $rerank: le stesse etichette del percorso via API (rerank.py).
+# I campi facoltativi possono mancare: $rerank deve sempre ricevere una stringa.
+RERANK_TEXT: dict[str, Any] = {"$concat": [
+    "Titolo: ", {"$ifNull": ["$title", ""]},
+    "\nFonte: ", {"$ifNull": ["$filename", ""]},
+    ", pagina ", {"$convert": {"input": "$page_number", "to": "string", "onNull": "n/d", "onError": "n/d"}},
+    "\nTipo contenuto: ", {"$ifNull": ["$content_type", ""]},
+    "\nCategoria: ", {"$ifNull": ["$category", ""]},
+    "\nContenuto:\n", {"$ifNull": ["$content", ""]},
+]}
+
+PROJECT_COMMON: dict[str, Any] = {
     "document_id": 1,
     "filename": 1,
     "page_number": 1,
@@ -199,7 +206,7 @@ def dedup_stages(k: int) -> list[dict[str, Any]]:
     di fusione più alto e si registra in quali modalità compariva.
     """
     return [
-        {"$project": {**_PROJECT_COMMON, "chunk_hash": 1,
+        {"$project": {**PROJECT_COMMON, "chunk_hash": 1,
                       "_fusion_score": 1, "_fusion_details": 1}},
         {"$sort": {"_fusion_score": -1, "_id": 1}},
         {"$group": {
@@ -251,7 +258,7 @@ def build_pipeline(
 
     if retrieval_mode == "text":
         return _text_pipeline(query, k=k, filters=filters, fuzzy=fuzzy) + [
-            {"$project": {**_PROJECT_COMMON, "score": {"$meta": "searchScore"}}}
+            {"$project": {**PROJECT_COMMON, "score": {"$meta": "searchScore"}}}
         ]
 
     if retrieval_mode == "vector" and len(active_modes) == 1:
@@ -261,7 +268,7 @@ def build_pipeline(
         )
         return [
             vec,
-            {"$project": {**_PROJECT_COMMON, "score": {"$meta": "vectorSearchScore"}}},
+            {"$project": {**PROJECT_COMMON, "score": {"$meta": "vectorSearchScore"}}},
         ]
 
     if retrieval_mode in ("hybrid", "vector"):
@@ -301,7 +308,7 @@ def build_pipeline(
             pipeline.append({"$limit": k})
         pipeline.append({
             "$project": {
-                **_PROJECT_COMMON,
+                **PROJECT_COMMON,
                 "chunk_hash": 1,
                 **({"_found_in_modes": 1, "_copies": 1} if config.HYBRID_DEDUP else {}),
                 "score": "$_fusion_score",
@@ -382,16 +389,7 @@ def build_native_rerank_pipeline(
             "output": {"_hybrid_rank": {"$documentNumber": {}}},
         }},
         {"$sort": {"_hybrid_rank": 1}},
-        # Assemble the same labels used by the API path. Optional fields may
-        # be absent; $rerank must always receive a string at its path.
-        {"$set": {"_rerank_text": {"$concat": [
-            "Titolo: ", {"$ifNull": ["$title", ""]},
-            "\nFonte: ", {"$ifNull": ["$filename", ""]},
-            ", pagina ", {"$convert": {"input": "$page_number", "to": "string", "onNull": "n/d", "onError": "n/d"}},
-            "\nTipo contenuto: ", {"$ifNull": ["$content_type", ""]},
-            "\nCategoria: ", {"$ifNull": ["$category", ""]},
-            "\nContenuto:\n", {"$ifNull": ["$content", ""]},
-        ]}}},
+        {"$set": {"_rerank_text": RERANK_TEXT}},
         {
             "$rerank": {
                 "query": {"text": format_rerank_query(query, instructions)},
@@ -407,33 +405,3 @@ def build_native_rerank_pipeline(
         pipeline.append({"$limit": n})
     return pipeline
 
-
-def search_with_native_rerank(
-    coll: Collection,
-    query: str,
-    *,
-    filters: dict[str, Any] | None = None,
-    top_k: int | None = None,
-    top_n: int | None = None,
-    embed_mode: str | None = None,
-    fuzzy: bool = False,
-    query_vector: list[float] | None = None,
-    modes: list[str] | None = None,
-    query_vectors: dict[str, list[float]] | None = None,
-    instructions: str | None = None,
-) -> list[dict[str, Any]]:
-    results = list(coll.aggregate(build_native_rerank_pipeline(
-        query,
-        filters=filters,
-        top_k=top_k,
-        top_n=top_n,
-        embed_mode=embed_mode,
-        fuzzy=fuzzy,
-        query_vector=query_vector,
-        modes=modes,
-        query_vectors=query_vectors,
-        instructions=instructions,
-    )))
-    for rank, doc in enumerate(results, start=1):
-        doc["_rerank_rank"] = rank
-    return results

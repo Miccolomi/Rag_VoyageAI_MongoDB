@@ -26,8 +26,3 @@ def branch_ranks(doc: dict) -> dict:
             ranks[item.get("inputPipelineName")] = int(rank)
     return ranks
 
-
-def semantic_ranks(doc: dict) -> str:
-    return ", ".join(f"{name.removeprefix('vector_') if name != 'vector' else doc.get('embedding_mode', 'vector')}: {rank}°"
-                     for name, rank in branch_ranks(doc).items()
-                     if name == "vector" or name.startswith("vector_")) or "—"

@@ -7,8 +7,6 @@ non richiede ricerche in più.
 """
 from __future__ import annotations
 
-import html
-import uuid
 from typing import Any
 
 
@@ -138,64 +136,3 @@ def summarize_run(run: dict[str, Any], parent: dict[str, Any] | None = None) -> 
                 f"{model_calls} {'chiamata' if model_calls == 1 else 'chiamate'} al modello" + (f" · {_fmt_ms(total_ms)}" if total_ms else ""),
     }
 
-
-def agent_value_html(run: dict[str, Any], *, dark: bool = False) -> tuple[str, int] | None:
-    data = summarize_run(run)
-    if not data:
-        return None
-    uid = "av" + uuid.uuid4().hex[:8]
-    fg, muted, border, card = (("#fafafa", "#a3a8b8", "rgba(250,250,250,0.18)", "rgba(255,255,255,0.04)") if dark
-                               else ("#31333F", "#6b6f7b", "rgba(49,51,63,0.16)", "#ffffff"))
-    ok_bg, ok_fg = ("rgba(29,158,117,0.22)", "#9FE1CB") if dark else ("rgba(29,158,117,0.14)", "#0F6E56")
-    ko_bg, ko_fg = ("rgba(239,159,39,0.22)", "#FAC775") if dark else ("rgba(239,159,39,0.16)", "#854F0B")
-    accent = "#7F77DD"
-
-    def chips(found: set, animated: bool) -> str:
-        out = []
-        for i, name in enumerate(data["elements"]):
-            on = name in found
-            style = f"background:{ok_bg};color:{ok_fg}" if on else f"background:{ko_bg};color:{ko_fg}"
-            mark = "✓" if on else "✗"
-            cls = f' class="{uid}-chip" style="animation-delay:{0.6 + 0.9 * len(data["steps"]) + 0.2 * i:.1f}s;{style}"' if animated \
-                else f' style="{style}"'
-            out.append(f'<span{cls}>{mark} {html.escape(_short(name, 46))}</span>')
-        return "".join(out)
-
-    steps = "".join(
-        f'<div class="{uid}-step" style="animation-delay:{0.4 + 0.9 * i:.1f}s">'
-        f'<span>{s["icon"]}</span><span>{html.escape(s["text"])}</span>'
-        f'<span style="margin-left:auto;color:{muted};white-space:nowrap">{html.escape(s["ms"])}</span></div>'
-        for i, s in enumerate(data["steps"]))
-    final_delay = 0.4 + 0.9 * len(data["steps"])
-    page = f"""
-<div id="{uid}" style="font-family:'Source Sans Pro',sans-serif;color:{fg};font-size:14px">
-<style>
-#{uid} .{uid}-step{{display:flex;gap:8px;align-items:baseline;padding:4px 0;opacity:0;animation:{uid}in .5s ease forwards}}
-#{uid} .{uid}-chip,#{uid} span.{uid}-static{{display:inline-block;margin:3px 6px 0 0;padding:3px 10px;border-radius:6px;font-size:12.5px}}
-#{uid} .{uid}-chip{{opacity:0;animation:{uid}in .5s ease forwards}}
-#{uid} .{uid}-final{{opacity:0;animation:{uid}in .6s ease forwards;animation-delay:{final_delay:.1f}s}}
-@keyframes {uid}in{{from{{opacity:0;transform:translateY(4px)}}to{{opacity:1;transform:none}}}}
-#{uid} .{uid}-grid{{display:grid;grid-template-columns:repeat(auto-fit,minmax(250px,1fr));gap:12px}}
-</style>
-<div style="display:flex;justify-content:space-between;align-items:center;gap:8px;margin-bottom:10px">
-  <div style="font-size:16px;font-weight:600">✨ Cosa ha fatto l’agente in più: {html.escape(data["title"].lower())}</div>
-  <button onclick="var r=document.getElementById('{uid}');var c=r.cloneNode(true);r.parentNode.replaceChild(c,r);"
-    style="font-size:12px;border:1px solid {border};background:transparent;color:{fg};border-radius:6px;padding:3px 10px;cursor:pointer">↻ Riproduci</button>
-</div>
-<div class="{uid}-grid">
-  <div style="border:1px solid {border};border-radius:10px;padding:10px 12px;background:{card}">
-    <div style="color:{muted};font-size:12.5px;margin-bottom:6px">🔎 Ricerca standard · una ricerca, risponde subito</div>
-    <div>{chips(data["standard_found"], False).replace("<span style", f"<span class='{uid}-static' style")}</div>
-    <div style="margin-top:8px;font-weight:600">{html.escape(data["standard"])}</div>
-  </div>
-  <div style="border:2px solid {accent};border-radius:10px;padding:10px 12px;background:{card}">
-    <div style="color:{accent};font-size:12.5px;margin-bottom:6px">🧭 Agente · controlla prima di rispondere</div>
-    {steps}
-    <div>{chips(data["agent_found"], True)}</div>
-    <div class="{uid}-final" style="margin-top:8px;font-weight:600">{html.escape(data["agent"])}</div>
-  </div>
-</div>
-<div style="color:{muted};font-size:12.5px;margin-top:8px">{html.escape(data["cost"])}</div>
-</div>"""
-    height = 150 + 30 * len(data["steps"]) + (30 if data["elements"] else 0) + (24 if len(data["elements"]) > 2 else 0)
-    return page, height

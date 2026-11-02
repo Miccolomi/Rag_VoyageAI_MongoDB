@@ -1,24 +1,14 @@
-"""Generation groundata. Supporta due provider via `LLM_PROVIDER`:
+"""Risposta del modello basata solo sui passaggi recuperati.
 
-- "anthropic" → Claude via SDK ufficiale (`anthropic`)
-- "ollama"    → modello locale via HTTP API Ollama (`/api/chat`)
-
-Esposte due interfacce:
-- generate_answer(): chiamata bloccante, ritorna dict con `answer` completo
-- generate_answer_stream(): ritorna un iteratore di stringhe (token) compatibile
-  con `st.write_stream()` di Streamlit. Le metriche finali sono esposte come
-  attributi (.usage, .full_text, .provider, .model) leggibili dopo che il
-  consumer ha esaurito l'iteratore.
-
-Il system prompt è identico tra i due provider — impone risposte basate
-ESCLUSIVAMENTE sui passaggi forniti.
+Provider scelto con `LLM_PROVIDER`: gateway (AI Gateway aziendale), anthropic, ollama, gemini.
+`generate_answer()` fa una sola chiamata e restituisce testo, uso dei token e modello.
+Il system prompt (prompts/system_prompt.txt) è lo stesso per tutti i provider.
 """
 from __future__ import annotations
 
-import json
 import re
 import time
-from typing import Any, Callable, Iterator
+from typing import Any
 
 import httpx
 from anthropic import Anthropic
@@ -236,131 +226,6 @@ def generate_answer(query: str, chunks: list[dict[str, Any]]) -> dict[str, Any]:
         return _generate_anthropic(query, chunks)
     if config.LLM_PROVIDER == "gemini":
         return _generate_gemini(query, chunks)
-    raise ValueError(
-        f"LLM_PROVIDER non valido: '{config.LLM_PROVIDER}' "
-        f"(attesi: anthropic | ollama | gemini | gateway)"
-    )
-
-
-# ────────────────────────────────────────────────────── streaming interface ──
-
-class AnswerStream:
-    """Iteratore di token streaming compatibile con `st.write_stream()`.
-
-    Yields stringhe (token man mano che arrivano dal LLM). Al termine
-    dell'iterazione, gli attributi `.full_text`, `.usage`, `.provider`, `.model`
-    sono valorizzati e leggibili.
-    """
-    def __init__(self, gen_factory: Callable[[], Iterator], *, provider: str, model: str):
-        self._gen_factory = gen_factory
-        self.provider = provider
-        self.model = model
-        self.usage: dict = {"input_tokens": None, "output_tokens": None}
-        self.full_text = ""
-
-    def __iter__(self):
-        parts: list[str] = []
-        for item in self._gen_factory():
-            if isinstance(item, dict):
-                # Metadata finale (usage) — non yieldare al consumer Streamlit
-                self.usage = item
-            else:
-                parts.append(item)
-                yield item
-        self.full_text = "".join(parts)
-
-
-def _stream_anthropic(query: str, chunks: list[dict[str, Any]]) -> Iterator:
-    if not config.ANTHROPIC_API_KEY:
-        raise RuntimeError("ANTHROPIC_API_KEY non impostata nel .env")
-    client = Anthropic(api_key=config.ANTHROPIC_API_KEY)
-    with client.messages.stream(
-        model=config.ANTHROPIC_MODEL,
-        max_tokens=config.LLM_MAX_TOKENS,
-        temperature=0,
-        system=_system_prompt(),
-        messages=[{"role": "user", "content": _user_message(query, chunks)}],
-    ) as stream:
-        for text_chunk in stream.text_stream:
-            if text_chunk:
-                yield text_chunk
-        final = stream.get_final_message()
-        yield {
-            "input_tokens": final.usage.input_tokens,
-            "output_tokens": final.usage.output_tokens,
-        }
-
-
-def _stream_gemini(query: str, chunks: list[dict[str, Any]]) -> Iterator:
-    # Per la demo preferiamo stabilità a streaming token-by-token: l'endpoint
-    # SSE di Gemini può rendere risposte parziali difficili da distinguere.
-    result = _generate_gemini(query, chunks)
-    yield result["answer"]
-    yield result["usage"]
-
-
-def _stream_ollama(query: str, chunks: list[dict[str, Any]]) -> Iterator:
-    url = f"{config.OLLAMA_BASE_URL}/api/chat"
-    payload = {
-        "model": config.OLLAMA_MODEL,
-        "stream": True,
-        "messages": [
-            {"role": "system", "content": _system_prompt()},
-            {"role": "user", "content": _user_message(query, chunks)},
-        ],
-        "options": {"temperature": 0, "top_p": 0.9, "num_ctx": config.OLLAMA_NUM_CTX,
-                    "num_predict": config.LLM_MAX_TOKENS},
-        "keep_alive": config.OLLAMA_KEEP_ALIVE,
-    }
-    try:
-        with httpx.stream("POST", url, json=payload, timeout=300.0) as r:
-            r.raise_for_status()
-            for line in r.iter_lines():
-                if not line:
-                    continue
-                data = json.loads(line)
-                msg = data.get("message") or {}
-                token = msg.get("content", "")
-                if token:
-                    yield token
-                if data.get("done"):
-                    yield {
-                        "input_tokens": data.get("prompt_eval_count"),
-                        "output_tokens": data.get("eval_count"),
-                    }
-                    break
-    except httpx.ConnectError as e:
-        raise RuntimeError(
-            f"Impossibile contattare Ollama su {config.OLLAMA_BASE_URL}. "
-            "Verifica che il server sia avviato (`ollama serve`)."
-        ) from e
-
-
-def _stream_gateway(query: str, chunks: list[dict[str, Any]]) -> Iterator:
-    result = _generate_gateway(query, chunks)
-    yield result["answer"]
-    yield result["usage"]
-
-
-def generate_answer_stream(query: str, chunks: list[dict[str, Any]]) -> AnswerStream:
-    """Versione streaming. Ritorna AnswerStream (iterabile) per `st.write_stream()`."""
-    if config.LLM_PROVIDER == "gateway":
-        return AnswerStream(lambda: _stream_gateway(query, chunks), provider="gateway", model=config.AI_GATEWAY_MODEL)
-    if config.LLM_PROVIDER == "ollama":
-        return AnswerStream(
-            lambda: _stream_ollama(query, chunks),
-            provider="ollama", model=config.OLLAMA_MODEL,
-        )
-    if config.LLM_PROVIDER == "anthropic":
-        return AnswerStream(
-            lambda: _stream_anthropic(query, chunks),
-            provider="anthropic", model=config.ANTHROPIC_MODEL,
-        )
-    if config.LLM_PROVIDER == "gemini":
-        return AnswerStream(
-            lambda: _stream_gemini(query, chunks),
-            provider="gemini", model=config.GEMINI_MODEL,
-        )
     raise ValueError(
         f"LLM_PROVIDER non valido: '{config.LLM_PROVIDER}' "
         f"(attesi: anthropic | ollama | gemini | gateway)"

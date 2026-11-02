@@ -295,6 +295,11 @@ def run_agent(req: AgentRequest, *, runs, sessions, collection) -> Iterator[dict
             "citation_check": [] if blocked else check_citations(answer, final_sources),
         }, step="complete")
         yield finish(answer, sources, status)
+    except GeneratorExit:
+        # La pagina si è chiusa a metà ricerca: senza questo la ricerca resterebbe "in corso" per sempre.
+        agentic_memory.fail_run(runs, sessions, session_id=req.session_id, run_id=run_id,
+                                message="Ricerca interrotta: la pagina è stata chiusa o ricaricata.")
+        raise
     except Exception as exc:  # lo stato e l'errore restano in MongoDB
         agentic_memory.fail_run(runs, sessions, session_id=req.session_id, run_id=run_id,
                                 message=f"{type(exc).__name__}: {exc}")

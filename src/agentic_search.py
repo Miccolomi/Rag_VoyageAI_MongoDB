@@ -15,7 +15,7 @@ from . import config
 log = logging.getLogger(__name__)
 
 
-def _model_label() -> str:
+def model_label() -> str:
     return {
         "anthropic": config.ANTHROPIC_AGENT_MODEL,
         "gemini": config.GEMINI_MODEL,
@@ -483,10 +483,6 @@ def decide_next_search(grade: dict[str, Any], *, iteration: int, retries: int,
     return {"action": "continue", "reason": "evidence_incomplete", "query": query}
 
 
-def model_label() -> str:
-    return _model_label()
-
-
 def retrieve_candidates(
     collection,
     query: str,
@@ -545,6 +541,7 @@ def rerank_union(
     if not candidates:
         return []
     from .rerank import format_rerank_query, rerank
+    from .retrieval import PROJECT_COMMON, RERANK_TEXT
 
     if config.RERANK_BACKEND == "voyage_api" and config.VOYAGE_API_KEY:
         return rerank(query, candidates, top_n=min(top_n, len(candidates)), instructions=instructions or None)
@@ -554,17 +551,9 @@ def rerank_union(
     if any(row.get("_id") is None for row in candidates):
         raise ValueError("Impossibile riordinare i passaggi: manca un identificativo MongoDB.")
 
-    rerank_text = {"$concat": [
-        "Titolo: ", {"$ifNull": ["$title", ""]},
-        "\nFonte: ", {"$ifNull": ["$filename", ""]},
-        ", pagina ", {"$convert": {"input": "$page_number", "to": "string", "onNull": "n/d", "onError": "n/d"}},
-        "\nTipo contenuto: ", {"$ifNull": ["$content_type", ""]},
-        "\nCategoria: ", {"$ifNull": ["$category", ""]},
-        "\nContenuto:\n", {"$ifNull": ["$content", ""]},
-    ]}
     pipeline = [
         {"$match": {"_id": {"$in": [row["_id"] for row in candidates if row.get("_id") is not None]}}},
-        {"$set": {"_rerank_text": rerank_text}},
+        {"$set": {"_rerank_text": RERANK_TEXT}},
         {"$rerank": {
             "query": {"text": format_rerank_query(query, instructions or None)},
             "model": config.VOYAGE_RERANK_MODEL,
@@ -574,10 +563,7 @@ def rerank_union(
         {"$set": {"_rerank_score": {"$meta": "score"}}},
         {"$unset": "_rerank_text"},
         {"$limit": min(top_n, len(candidates))},
-        {"$project": {"document_id": 1, "filename": 1, "page_number": 1,
-                       "chunk_index": 1, "content_type": 1, "content": 1,
-                       "title": 1, "category": 1, "gridfs_file_id": 1,
-                       "embedding_mode": 1, "_rerank_score": 1}},
+        {"$project": {**PROJECT_COMMON, "_rerank_score": 1}},
     ]
     ranked = list(collection.aggregate(pipeline))
     if len(ranked) < min(top_n, len(candidates)):

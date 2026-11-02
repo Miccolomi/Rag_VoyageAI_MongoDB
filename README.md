@@ -27,8 +27,7 @@ or end-to-end upload test has been run as part of this change.
 To prepare the files again, run `python scripts/prepare_financebench.py`. In
 Upload choose text ingestion, GridFS, then **Una cartella**, and select
 `data/financebench_100/pdfs`. Keep duplicate handling on skip and leave shared
-title/author/year overrides empty. Click **Avvia ingestion**. Requires Streamlit
-1.65+. Each file is processed sequentially, with progress and a downloadable
+title/author/year overrides empty. Click **Avvia ingestion**. Each file is processed sequentially, with progress and a downloadable
 summary of successes, skips and errors. Keep the page open: this is not a
 background job. Reference annotations and the manifest stay outside `pdfs`
 and must not be ingested. Atlas indexing is asynchronous.
@@ -124,7 +123,8 @@ source .venv/bin/activate
 pip install -r requirements.txt
 # First setup only, if .env does not exist:
 cp .env.example .env
-streamlit run app.py
+python -m uvicorn server:app --port 8000
+# then open localhost:8000
 ```
 
 Before starting, configure `.env` with MongoDB connectivity, the Voyage key and
@@ -238,12 +238,8 @@ and user drafts survive switching to a preset. Scenario selection and its cards
 are removed. Only question text is sent; expected answers and trap descriptions
 are never added. Query 2 has been removed.
 
-The last completed run is stored in Session State, including its question,
-settings, answer, prompts and candidate lists. Only **Esegui** starts retrieval
-and generation. BM25/vector passage inspectors use `st.fragment`, so selecting
-a passage updates only that panel without rerunning the page or calling the
-providers. Source downloads also avoid reruns. Results survive widget reruns,
-but not server restarts or loss of the browser session.
+Only **Esegui** starts retrieval and generation: browsing rankings, passages and
+the pipeline does not call Atlas, Voyage or the model again.
 
 Query still searches every populated embedding mode with one text branch and
 one vector branch per mode. The displayed pipeline is the actual Atlas request.
@@ -302,9 +298,8 @@ produced +476 and an external link despite receiving the correct 2021/2022 value
 citation-blocking changes. Details and manual results are in
 [DEMO_PLAN.md](DEMO_PLAN.md) and [DEMO_QUERIES.md](DEMO_QUERIES.md).
 
-Restart Streamlit after Python-module or environment changes; a page rerun may
-retain imported modules. This resolved the stale `RERANK_BACKEND` AttributeError.
-Restarting clears transient session results. Prompt-file edits are read per call.
+Restart the web server (or run it with `--reload`) after Python-module or
+configuration changes. Prompt-file edits are read per call.
 
 ## Client-side encryption of agent memory (CSFLE)
 
@@ -325,7 +320,10 @@ see only binary data (BSON subtype 6); the application, which holds the key, rea
 
 ## Project structure
 
-- `app.py`: Streamlit UI and orchestration.
+- `server.py`: web server (Starlette), JSON APIs and event streams.
+- `web/`: the pages (`index.html`, `style.css`, `app.js`) and the architecture diagram.
+- `src/web_services.py`: page services (step-by-step Query, Upload, Admin, health checks).
+- `src/agent.py`, `src/agentic_search.py`, `src/agentic_memory.py`: agentic search and its MongoDB memory.
 - `src/retrieval_details.py`: passage identity and fusion branch ranks.
 - `src/search_scope.py`: shared search inventory, scope and index explanations.
 - `src/answer_quality.py`: answer generation, role-tag cleanup and citation checks.
@@ -334,6 +332,7 @@ see only binary data (BSON subtype 6); the application, which holds the key, rea
 - `src/field_encryption.py`: client-side encryption (CSFLE) of session first questions.
 - `schemas/`: Atlas Search and Vector Search index definitions.
 - `prompts/`: LLM instructions for answers with sources.
-- `tests/`: pipeline tests; `scripts/`: diagnostic tools.
+- `tests/`: offline tests (mongomock); `scripts/`: FinanceBench corpus preparation
+  and one-off Voyage API checks.
 
 Update both guides when setup, modes, dependencies or limitations change.

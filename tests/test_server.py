@@ -5,7 +5,7 @@ import mongomock
 import pytest
 from starlette.testclient import TestClient
 
-from src import agentic_memory, agentic_search, answer_quality, config, generation, search_scope, web_services
+from src import agentic_search, answer_quality, config, generation, search_scope, web_services
 
 DOCS = [{"_id": "c1", "document_id": "d1", "filename": "3M_2018_10K.pdf", "page_number": 60,
          "content": "Purchases of property, plant and equipment (1,577)", "_rerank_score": 0.8}]

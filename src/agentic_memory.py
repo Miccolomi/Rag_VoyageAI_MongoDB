@@ -13,19 +13,25 @@ from . import config, field_encryption
 logger = logging.getLogger(__name__)
 
 MAX_SESSION_MESSAGES = 24
-MAX_SESSION_FEEDBACK = 30
 
 
 def utc_now() -> datetime:
     return datetime.now(timezone.utc)
 
 
+_INDEXED: set[tuple[int, str]] = set()
+
+
 def get_agent_collections() -> tuple[Collection, Collection]:
     db = config.get_db()
     sessions = db["agentic_sessions"]
     runs = db["agentic_runs"]
-    sessions.create_index([("updated_at", -1)])
-    runs.create_index([("session_id", 1), ("created_at", -1)])
+    # Gli indici si creano una volta per processo, non a ogni richiesta dell'interfaccia.
+    if (id(db.client), db.name) not in _INDEXED:
+        sessions.create_index([("updated_at", -1)])
+        sessions.create_index([("created_at", -1)])
+        runs.create_index([("session_id", 1), ("created_at", -1)])
+        _INDEXED.add((id(db.client), db.name))
     return sessions, runs
 
 
@@ -87,54 +93,6 @@ def start_run(runs: Collection, sessions: Collection, session_id: str, question:
         }},
     )
     return run_id
-
-
-def record_feedback(runs: Collection, sessions: Collection, *, session_id: str,
-                    run_id: str, action: str, details: dict[str, Any] | None = None) -> dict[str, Any]:
-    """Keep the user's decision with both its run and the session's recent memory."""
-    if action not in {"accepted", "needs_refinement", "refinement_submitted"}:
-        raise ValueError("Azione di feedback non valida.")
-    entry = {**(details or {}), "id": str(uuid4()), "run_id": run_id,
-             "action": action, "at": utc_now()}
-    outcome = runs.update_one(
-        {"_id": run_id, "session_id": session_id, "status": {"$in": ["complete", "blocked"]}},
-        {"$push": {"feedback": entry}, "$set": {"updated_at": entry["at"]}},
-    )
-    if outcome.matched_count != 1:
-        raise ValueError("Ricerca non trovata nella sessione o non ancora conclusa.")
-    result = sessions.update_one(
-        {"_id": session_id},
-        {"$push": {"memory.feedback": {"$each": [entry], "$slice": -MAX_SESSION_FEEDBACK}},
-         "$set": {"updated_at": entry["at"]}},
-    )
-    if result.matched_count != 1:
-        raise RuntimeError("Feedback salvato nella ricerca, ma sessione non disponibile: impossibile aggiornare la memoria.")
-    return entry
-
-
-def validate_refinement(previous_question: str, question: str, *, top_k: int, top_n: int) -> str:
-    """Require an explicit new question and settings that can be executed."""
-    question = question.strip()
-    if not question:
-        raise ValueError("Scrivi la nuova domanda completa prima di avviare l’approfondimento.")
-    if " ".join(question.casefold().split()) == " ".join(previous_question.casefold().split()):
-        raise ValueError("Riformula la domanda: deve essere diversa dalla domanda precedente.")
-    if not 5 <= top_k <= 100 or not 1 <= top_n <= 20 or top_n > top_k:
-        raise ValueError("Usa 5–100 candidati e 1–20 fonti, con fonti non superiori ai candidati.")
-    return question
-
-
-def refinement_history(parent: dict[str, Any], answer: str,
-                       summaries: list[dict[str, Any]]) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
-    """Give a follow-up the selected run's context, even if newer turns exist."""
-    previous = {"role": "user", "text": parent.get("question", "")}
-    if parent.get("feedback_context"):
-        previous["feedback_context"] = parent["feedback_context"]
-    history = [previous]
-    if answer:
-        history.append({"role": "assistant", "text": answer})
-    matching = [item for item in summaries if item.get("turn_id") == parent.get("_id")]
-    return history, matching
 
 
 def add_event(
@@ -232,8 +190,9 @@ def fail_run(
     message: str,
 ) -> None:
     now = utc_now()
+    # Solo una ricerca ancora in corso: una già conclusa non diventa "fallita" se la pagina si chiude dopo.
     runs.update_one(
-        {"_id": run_id, "session_id": session_id},
+        {"_id": run_id, "session_id": session_id, "status": "running"},
         {"$set": {"status": "failed", "updated_at": now, "state.step": "failed"},
          "$push": {"events": {"type": "error", "comment": message[:500], "at": now}}},
     )

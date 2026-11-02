@@ -1,7 +1,6 @@
 """Servizi per l'interfaccia web: Query, viste sulle ricerche agentiche, Upload, Admin.
 
-Nessuna dipendenza da Streamlit nella logica: il server web (server.py) chiama
-queste funzioni e le espone come API JSON o come flussi di eventi.
+Il server web (server.py) chiama queste funzioni e le espone come API JSON o come flussi di eventi.
 """
 from __future__ import annotations
 
@@ -21,7 +20,6 @@ from .agent_value import summarize_run
 from .answer_quality import explain_answer_check, generate_single_answer, inspect_answer
 from .citation_check import check_citations, summarize as summarize_checks
 from .generation import llm_available
-from .rank_flow import short_file, snippet
 from .rerank import format_rerank_query, rerank
 from .retrieval import build_native_rerank_pipeline, build_pipeline, search
 from .retrieval_details import branch_ranks, passage_key
@@ -36,6 +34,26 @@ DEMO_QUESTIONS = [
     "Quali sono stati i ricavi e l’utile operativo del segmento AWS di Amazon nel 2022? Riporta entrambi in milioni di dollari.",
     "Come si prepara la pizza napoletana?",
 ]
+
+
+_WEB_IN_ERROR = re.compile(r"\s*(See\s+)?(https?://|www\.)\S+", re.I)
+
+
+def public_error(exc: BaseException | str, limit: int = 300) -> str:
+    """Messaggio d'errore da mostrare in pagina: niente indirizzi web (Atlas e i provider a volte li includono)."""
+    text = exc if isinstance(exc, str) else f"{type(exc).__name__}: {exc}"
+    return _WEB_IN_ERROR.sub("", text).strip()[:limit]
+
+
+def snippet(text: str | None, length: int = 70) -> str:
+    """Prime parole del passaggio, su una riga, per distinguerlo dagli altri della stessa pagina."""
+    flat = " ".join(str(text or "").split())
+    return flat if len(flat) <= length else flat[: length - 1].rstrip() + "…"
+
+
+def short_file(filename: str | None) -> str:
+    name = str(filename or "Documento")
+    return name[:-4] if name.lower().endswith(".pdf") else name
 
 
 def page_label(page: Any) -> str:
@@ -71,7 +89,7 @@ def info() -> dict[str, Any]:
         status["unavailable"] = scope["unavailable"]
         status["ready"] = bool(status["counts"].get(mode)) and not scope["unavailable"]
     except Exception as exc:
-        status.update({"atlas": f"{type(exc).__name__}: {str(exc)[:200]}", "ready": False, "counts": {}})
+        status.update({"atlas": public_error(exc, 200), "ready": False, "counts": {}})
     return status
 
 
@@ -95,10 +113,8 @@ def health(force: bool = False) -> dict[str, Any]:
                            "ms": round((time.perf_counter() - started) * 1000)})
             return True
         except Exception as exc:
-            # Niente indirizzi web nei messaggi mostrati: gli errori di Atlas a volte li includono.
-            message = re.sub(r"\s*(See\s+)?https?://\S+", "", str(exc)).strip()
             checks.append({"name": name, "what": what, "ok": False, "ms": round((time.perf_counter() - started) * 1000),
-                           "detail": f"{type(exc).__name__}: {message[:300]}"})
+                           "detail": public_error(exc)})
             return False
 
     mode = search_scope.load_active_mode(config.EMBED_MODE)
@@ -131,7 +147,7 @@ def health(force: bool = False) -> dict[str, Any]:
             "capital expenditures", top_k=config.RETRIEVAL_TOP_K, embed_mode=mode, modes=scope["modes"], query_vectors=vectors, **options)))
         if not docs:
             raise RuntimeError("La pipeline non ha restituito risultati")
-        return (f"$search + $vectorSearch + $rankFusion" + (" + $rerank" if native else "")
+        return ("$search + $vectorSearch + $rankFusion" + (" + $rerank" if native else "")
                 + f": {len(docs)} risultati, il primo da {docs[0].get('filename')}")
 
     def answer_model():
@@ -398,7 +414,7 @@ def ingest_files(files: list[tuple[str, bytes]], *, mode: str, metadata: dict[st
                         "detail": summary.get("reason", "") if skipped else "" if chunks else
                         "Nessun contenuto indicizzabile estratto dal documento."})
         except Exception as exc:
-            row["detail"] = f"{type(exc).__name__}: {exc}"
+            row["detail"] = public_error(exc)
         row["seconds"] = round(time.perf_counter() - started, 1)
         yield {"type": "file_done", "number": number, **row}
     yield {"type": "done"}

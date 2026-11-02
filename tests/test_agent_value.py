@@ -1,4 +1,4 @@
-from src.agent_value import agent_value_html, summarize_run
+from src.agent_value import summarize_run
 
 
 def _run(events, question="Dove si trovano gli stabilimenti produttivi di 3M?"):
@@ -64,8 +64,3 @@ def test_non_risponde_a_memoria():
         {"type": "answer", "status": "generated", "attempts": 1}], question="Come si prepara la pizza?"))
     assert data["title"] == "Non ha risposto a memoria"
 
-
-def test_html_senza_ricerche_non_mostra_nulla():
-    assert agent_value_html({"events": []}) is None
-    html, height = agent_value_html(_run([SEARCH1]), dark=True)
-    assert "Riproduci" in html and height > 100

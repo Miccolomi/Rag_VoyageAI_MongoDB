@@ -1,4 +1,4 @@
-"""Demo RAG su MongoDB Atlas: server web (senza Streamlit).
+"""Demo RAG su MongoDB Atlas: server web.
 
 Avvio:
     .venv/bin/python -m uvicorn server:app --port 8000 --reload
@@ -19,7 +19,7 @@ from typing import Any, Iterator
 from bson import ObjectId
 from starlette.applications import Starlette
 from starlette.requests import Request
-from starlette.responses import FileResponse, JSONResponse, Response, StreamingResponse
+from starlette.responses import FileResponse, Response, StreamingResponse
 from starlette.routing import Mount, Route
 from starlette.staticfiles import StaticFiles
 
@@ -48,9 +48,11 @@ def _stream(events: Iterator[dict[str, Any]]) -> StreamingResponse:
     def lines():
         try:
             for event in events:
+                if event.get("type") == "error" and event.get("message"):
+                    event = {**event, "message": web_services.public_error(str(event["message"]), 600)}
                 yield json.dumps(event, default=_default, ensure_ascii=False) + "\n"
         except Exception as exc:
-            yield json.dumps({"type": "error", "message": f"{type(exc).__name__}: {exc}"}) + "\n"
+            yield json.dumps({"type": "error", "message": web_services.public_error(exc)}, ensure_ascii=False) + "\n"
     return StreamingResponse(lines(), media_type="application/x-ndjson",
                              headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})
 
@@ -82,7 +84,7 @@ def api_filters(request: Request) -> Response:
     try:
         return _json(web_services.available_filters())
     except Exception as exc:
-        return _json({"error": str(exc)}, 500)
+        return _json({"error": web_services.public_error(exc)}, 500)
 
 
 def api_file(request: Request) -> Response:
@@ -114,7 +116,7 @@ async def api_query_compare(request: Request) -> Response:
             body["question"], filters=web_services.build_filters(body.get("filters")),
             top_k=body.get("top_k") or config.RETRIEVAL_TOP_K, fuzzy=bool(body.get("fuzzy"))))
     except Exception as exc:
-        return _json({"error": str(exc)}, 500)
+        return _json({"error": web_services.public_error(exc)}, 500)
 
 
 # ─── Ricerca agentica ────────────────────────────────────────────────────

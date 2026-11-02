@@ -121,13 +121,6 @@ Queste attività non sono passi successivi già approvati.
 
 ### Pagina Query attuale
 
-- Corretto il ciclo di visualizzazione: risultati salvati in Session State e
-  rendering separato dal pulsante **Esegui**. Domanda, parametri, risposta,
-  prompt e classifiche appartengono alla stessa esecuzione salvata.
-  Gli ispettori BM25/Vector sono frammenti Streamlit: selezionare un passaggio
-  aggiorna solo il riquadro. Download con `on_click="ignore"`.
-  Nessuna nuova chiamata a retrieval, reranker o LLM durante la consultazione.
-  Correzione implementata, collaudo interattivo non effettuato in questo turno.
 - Selettore unico **Domanda**: cinque domande identiche a `DEMO_QUERIES.md` più
   **Domanda libera**. Campo libero inizialmente vuoto, anche dopo migrazione da
   sessioni con il vecchio default Doganella. Le bozze dell’utente sono preservate
@@ -163,8 +156,7 @@ Queste attività non sono passi successivi già approvati.
 - Risposte bloccate: visualizzati motivi specifici e dettaglio diagnostico dei
   tentativi. Le nuove tracce agentiche salvano motivo, esiti, modello e testo
   grezzo limitato a 12.000 caratteri per tentativo; non le richieste complete.
-  Le ricerche storiche possono non avere questi dettagli. La pagina Query tiene
-  il dettaglio nella sessione Streamlit.
+  Le ricerche storiche possono non avere questi dettagli.
 - Collaudo su `3M_2018_10K.pdf`, stessa domanda e filtro della prova precedente:
   i primi tre passaggi restano nell'ordine del reranker e la fonte richiesta è
   dichiarata non verificata. La nuova esecuzione ha prodotto una risposta con
@@ -431,9 +423,8 @@ non risultati della RAG. La scheda non va caricata nel database.
   restano limiti osservati. Non modificare contesto/modello di nascosto.
 - Ultime revisioni UI e campo libero: implementate, senza nuovo collaudo completo
   della pagina o delle cinque query. Non dichiararle un benchmark superato.
-- L’AttributeError `RERANK_BACKEND` era dovuto al modulo importato ancora in
-  memoria; risolto riavviando Streamlit. Riavviare dopo modifiche Python/.env,
-  considerando la perdita dei risultati transitori. Il prompt è riletto per chiamata.
+- Riavviare il server web dopo modifiche ai moduli Python o alla configurazione.
+  Il prompt è riletto per chiamata.
 - Non avviare nuovi benchmark, dashboard, sviluppi multimodali o migrazione LLM
   senza una nuova decisione dell’utente. Nessuna cancellazione/reingestion o
   ricreazione degli indici è necessaria per le modifiche di presentazione.

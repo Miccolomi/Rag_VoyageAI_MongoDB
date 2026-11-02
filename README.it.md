@@ -156,7 +156,8 @@ source .venv/bin/activate
 pip install -r requirements.txt
 # Solo al primo setup, se .env non esiste:
 cp .env.example .env
-streamlit run app.py
+python -m uvicorn server:app --port 8000
+# poi apri localhost:8000
 ```
 
 Prima dell'avvio, compilare `.env` con:
@@ -241,8 +242,7 @@ Nella pagina **Upload**:
    Facoltativamente usa il tag comune `financebench`.
 5. Scegli **Salta upload duplicati**, poi **Avvia ingestion**.
 
-Serve Streamlit 1.65 o successivo, come indicato nelle dipendenze. L’app elabora
-un documento alla volta e mostra progresso, file corrente e risultati per file.
+L’app elabora un documento alla volta e mostra progresso, file corrente e risultati per file.
 Gli errori non interrompono gli altri documenti. Il riepilogo distingue inseriti,
 duplicati saltati ed errori ed è scaricabile come JSON. Un singolo documento
 mantiene il riepilogo dettagliato precedente. I file temporanei vengono rimossi.
@@ -461,14 +461,8 @@ La selezione invia solo la domanda, senza risposta attesa o suggerimenti sul
 trabocchetto. Restano istruzioni facoltative al reranker, filtri e parametri.
 Query 2 è stata eliminata; esiste una sola pagina Query.
 
-L’ultima ricerca completata è conservata nella sessione: domanda eseguita,
-parametri, risposta, prompt e classifiche restano associati alla stessa
-esecuzione anche se si modificano i campi del modulo. Solo **Esegui** avvia una
-nuova ricerca e generazione. Gli ispettori del testo BM25 e semantico usano
-`st.fragment`: cambiare passaggio aggiorna solo il riquadro, senza rieseguire
-la pagina o chiamare Atlas/Voyage/LLM. Anche il download delle fonti evita il
-rerun. La persistenza vale nella sessione corrente, non dopo un riavvio del
-server o la perdita della sessione browser.
+Solo **Esegui** avvia una nuova ricerca e generazione: consultare classifiche,
+passaggi e pipeline non richiama Atlas, Voyage o il modello.
 
 ### Dove cerca la domanda
 
@@ -561,8 +555,7 @@ La pagina distingue collegamenti non consentiti, numeri di passaggio fuori
 intervallo, citazioni assenti e risposta vuota. Per le nuove ricerche agentiche,
 la traccia MongoDB salva il controllo e il testo grezzo dei tentativi, limitato
 a 12.000 caratteri ciascuno, consultabili nel dettaglio diagnostico; non salva
-le richieste complete o credenziali. La pagina Query li mantiene nella sessione
-Streamlit. Le esecuzioni agentiche precedenti possono non avere tali dettagli.
+le richieste complete o credenziali. Le esecuzioni agentiche precedenti possono non avere tali dettagli.
 Una dichiarazione di insufficienza senza riferimenti proibiti può essere
 mostrata, con spiegazione che non dimostra l’assenza del dato nel database.
 Il controllo di forma **non certifica fatti, calcoli o supporto delle affermazioni**.
@@ -590,10 +583,8 @@ primi tre passaggi: +476 e URL esterno invece di −66 milioni. Le correzioni
 successive non sono state ancora verificate con una nuova esecuzione LLM.
 Per esiti e limiti consultare [DEMO_PLAN.md](DEMO_PLAN.md) e la scheda delle domande.
 
-Dopo modifiche ai moduli Python o a `.env`, riavviare Streamlit: il solo rerun
-può mantenere moduli importati in memoria. Questo ha causato l’AttributeError
-su `RERANK_BACKEND`, risolto con il riavvio. Il file del prompt viene invece
-riletto a ogni richiesta. Il riavvio azzera lo stato transitorio della sessione.
+Dopo modifiche ai moduli Python o alla configurazione, riavviare il server web (oppure
+avviarlo con `--reload`). Il file del prompt viene invece riletto a ogni richiesta.
 
 ## Pagina How it Works
 
@@ -678,7 +669,10 @@ Limiti voluti per la demo:
 
 ## Struttura del progetto
 
-- `app.py`: interfaccia Streamlit e orchestrazione.
+- `server.py`: server web (Starlette), API JSON e flussi di eventi.
+- `web/`: le pagine (`index.html`, `style.css`, `app.js`) e il diagramma dell'architettura.
+- `src/web_services.py`: servizi delle pagine (Query passo per passo, Upload, Admin, verifica componenti).
+- `src/agent.py`, `src/agentic_search.py`, `src/agentic_memory.py`: ricerca agentica e sua memoria in MongoDB.
 - `src/retrieval_details.py`: identità dei passaggi e lettura delle posizioni nella fusione.
 - `src/search_scope.py`: inventario e perimetro di ricerca condiviso, con indici visibili.
 - `src/answer_quality.py`: generazione della risposta, pulizia dei tag di ruolo e controllo dei riferimenti.
@@ -688,7 +682,8 @@ Limiti voluti per la demo:
 - `src/field_encryption.py`: cifratura lato client (CSFLE) della prima domanda delle sessioni.
 - `schemas/`: definizioni degli indici Atlas Search e Vector Search.
 - `prompts/`: istruzioni al LLM per risposte con fonti.
-- `tests/`: test della pipeline; `scripts/`: strumenti diagnostici.
+- `tests/`: test offline (mongomock); `scripts/`: preparazione del corpus FinanceBench
+  e verifiche una tantum delle API Voyage.
 
 Mantenere questo README e la sintesi inglese allineati quando cambiano setup,
 modalità, dipendenze o limiti. La pagina How it Works deve riflettere il

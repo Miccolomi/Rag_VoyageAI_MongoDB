@@ -18,7 +18,7 @@ def test_vettori_della_domanda_calcolati_in_parallelo(monkeypatch):
             active -= 1
         return [len(mode)]
 
-    monkeypatch.setattr(search_scope, "query_vector_for_mode", slow_vector)
+    monkeypatch.setattr(search_scope, "embed_query", slow_vector)
     started = time.perf_counter()
     vectors = search_scope.prepare_vectors("q", ["auto", "manual", "context", "multimodal"])
     elapsed = time.perf_counter() - started

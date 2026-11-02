@@ -22,7 +22,6 @@ from typing import Any
 import fitz  # PyMuPDF
 import pytesseract
 import tiktoken
-from bson import ObjectId
 from PIL import Image
 from gridfs import GridFS
 from langdetect import DetectorFactory, LangDetectException, detect
@@ -122,145 +121,6 @@ def _extract_pdf_metadata(doc: fitz.Document) -> dict[str, Any]:
 
 
 _OCR_WARNED = False
-
-
-def _extract_pdf_images(doc: fitz.Document, min_size: int = 150) -> list[dict[str, Any]]:
-    """Estrae le immagini significative da un PDF, skip elementi decorativi piccoli.
-
-    Ritorna lista di dict: {page_number, bytes (PNG), width, height}
-    """
-    out: list[dict[str, Any]] = []
-    for page_idx, page in enumerate(doc):
-        for img_info in page.get_images(full=True):
-            xref = img_info[0]
-            try:
-                pix = fitz.Pixmap(doc, xref)
-                if pix.width < min_size or pix.height < min_size:
-                    continue
-                if pix.n - pix.alpha > 3:  # CMYK → convert to RGB
-                    pix = fitz.Pixmap(fitz.csRGB, pix)
-                out.append({
-                    "page_number": page_idx + 1,
-                    "bytes": pix.tobytes("png"),
-                    "width": pix.width,
-                    "height": pix.height,
-                })
-            except Exception:
-                continue
-    return out
-
-
-_VISION_PROMPT = (
-    "Descrivi tecnicamente questa immagine in italiano in modo dettagliato "
-    "(max 150 parole). Se è un diagramma/schema elenca i componenti e le "
-    "relazioni. Se è una tabella riassumi i dati. Se è una foto descrivi "
-    "oggetti e contesto. Non inventare: se non capisci, dillo."
-)
-
-
-def _describe_with_anthropic(image_bytes: bytes) -> str | None:
-    if not config.ANTHROPIC_API_KEY:
-        return None
-    import base64
-    from anthropic import Anthropic
-    try:
-        client = Anthropic(api_key=config.ANTHROPIC_API_KEY)
-        image_b64 = base64.standard_b64encode(image_bytes).decode("utf-8")
-        resp = client.messages.create(
-            model="claude-haiku-4-5-20251001",
-            max_tokens=300,
-            messages=[{
-                "role": "user",
-                "content": [
-                    {"type": "image", "source": {
-                        "type": "base64", "media_type": "image/png", "data": image_b64,
-                    }},
-                    {"type": "text", "text": _VISION_PROMPT},
-                ],
-            }],
-        )
-        return "".join(b.text for b in resp.content if getattr(b, "type", None) == "text")
-    except Exception as e:
-        print(f"[ingestion] Claude vision fallita: {e}")
-        return None
-
-
-def _describe_with_gemini(image_bytes: bytes) -> str | None:
-    if not config.GEMINI_API_KEY:
-        return None
-    import base64
-    import httpx
-    try:
-        image_b64 = base64.standard_b64encode(image_bytes).decode("utf-8")
-        url = (f"https://generativelanguage.googleapis.com/v1beta/models/"
-               f"{config.GEMINI_MODEL}:generateContent")
-        payload = {
-            "contents": [{
-                "parts": [
-                    {"text": _VISION_PROMPT},
-                    {"inline_data": {"mime_type": "image/png", "data": image_b64}},
-                ],
-            }],
-            "generationConfig": {"temperature": 0.2, "maxOutputTokens": 300},
-        }
-        # API key in header (NON in URL → non appare nei log/errori)
-        headers = {"x-goog-api-key": config.GEMINI_API_KEY}
-        with httpx.Client(timeout=60.0) as client:
-            r = client.post(url, headers=headers, json=payload)
-            if r.status_code == 429:
-                print("[ingestion] Gemini rate limit (429), salto image description")
-                return None
-            r.raise_for_status()
-            data = r.json()
-        return "".join(
-            part.get("text", "")
-            for c in data.get("candidates", [])
-            for part in c.get("content", {}).get("parts", [])
-        ) or None
-    except Exception as e:
-        print(f"[ingestion] Gemini vision fallita: {e}")
-        return None
-
-
-def _describe_with_ollama(image_bytes: bytes) -> str | None:
-    """Vision via Ollama local — usa OLLAMA_VISION_MODEL (es. llava:7b)."""
-    import base64
-    import httpx
-    try:
-        image_b64 = base64.standard_b64encode(image_bytes).decode("utf-8")
-        url = f"{config.OLLAMA_BASE_URL}/api/generate"
-        payload = {
-            "model": config.OLLAMA_VISION_MODEL,
-            "prompt": _VISION_PROMPT,
-            "images": [image_b64],
-            "stream": False,
-            "options": {"temperature": 0.2, "num_predict": 300},
-        }
-        with httpx.Client(timeout=180.0) as client:
-            r = client.post(url, json=payload)
-            if r.status_code == 404:
-                print(f"[ingestion] Modello Ollama vision non trovato: "
-                      f"{config.OLLAMA_VISION_MODEL}. Esegui `ollama pull "
-                      f"{config.OLLAMA_VISION_MODEL}`.")
-                return None
-            r.raise_for_status()
-            data = r.json()
-        return (data.get("response") or "").strip() or None
-    except Exception as e:
-        print(f"[ingestion] Ollama vision fallita: {e}")
-        return None
-
-
-def describe_image(image_bytes: bytes) -> str | None:
-    """Dispatch image description in base a LLM_PROVIDER.
-    Ritorna None se il provider attivo non ha chiave o non supporta vision."""
-    if config.LLM_PROVIDER == "anthropic":
-        return _describe_with_anthropic(image_bytes)
-    if config.LLM_PROVIDER == "gemini":
-        return _describe_with_gemini(image_bytes)
-    if config.LLM_PROVIDER == "ollama":
-        return _describe_with_ollama(image_bytes)
-    return None
 
 
 def _ocr_page(page: fitz.Page) -> str | None:
@@ -399,7 +259,10 @@ def parse_pdf(
 
     pages: list[dict[str, Any]] = []
     for i, page in enumerate(doc):
-        text = markdown[i] if markdown is not None and i < len(markdown) else (page.get_text("text") or "")
+        text = markdown[i] if markdown is not None and i < len(markdown) else ""
+        if len(text.strip()) < 30:
+            # pymupdf4llm può scartare una pagina breve come intestazione: si usa il testo semplice.
+            text = (page.get_text("text") or "").strip() or text
         content_type = "text"
         # Pagina scansionata: quasi niente testo ma immagini. OCR solo se Tesseract è installato.
         if len(text.strip()) < 30 and page.get_images(full=False):
@@ -565,10 +428,16 @@ def build_chunks(
     size: int,
     overlap: int,
 ) -> list[dict[str, Any]]:
-    """Flatten pagine → lista chunk con (content, page_number, content_type)."""
+    """Flatten pagine → lista chunk con (content, page_number, content_type).
+
+    Pagina con immagine (modalità multimodal): un solo passaggio con immagine e testo della
+    pagina. Niente passaggi di solo testo in più: sarebbero copie dello stesso testo, e reranker
+    e modello vedrebbero la stessa pagina due volte occupando posti tra le fonti.
+    """
     out: list[dict[str, Any]] = []
     for page in pages:
-        for piece in _chunk_markdown(page["text"], size, overlap):
+        visual = bool(page.get("visual_image"))
+        for piece in ([] if visual else _chunk_markdown(page["text"], size, overlap)):
             out.append({
                 "content": piece,
                 "page_number": page["page_number"],
@@ -586,9 +455,9 @@ def build_chunks(
                 "page_end": page["page_number"],
                 "content_type": "table",
             })
-        if page.get("visual_image"):
+        if visual:
             out.append({
-                "content": page["text"] or f"Pagina {page['page_number']} del documento {page.get('filename', '')}",
+                "content": page["text"].strip() or f"Pagina {page['page_number']}: contenuto solo visivo, nessun testo estratto.",
                 "page_number": page["page_number"],
                 "page_start": page["page_number"],
                 "page_end": page["page_number"],
@@ -674,23 +543,11 @@ def ingest_pdf(
             "duplicate_policy": duplicate_policy,
             "duration_seconds": round(time.perf_counter() - started_at, 2),
         }
-    if existing_chunks and duplicate_policy == "replace":
-        existing_refs = list(collection.find(
-            mode_query,
-            {"gridfs_file_id": 1, "_id": 0},
-        ))
-        collection.delete_many(mode_query)
-        if storage == "gridfs":
-            fs = GridFS(db, collection=config.MONGODB_GRIDFS_BUCKET)
-            for ref in {r.get("gridfs_file_id") for r in existing_refs if r.get("gridfs_file_id")}:
-                try:
-                    still_referenced = collection.count_documents(
-                        {"document_id": doc_id, "gridfs_file_id": ref}, limit=1
-                    )
-                    if not still_referenced:
-                        fs.delete(ObjectId(ref))
-                except Exception:
-                    pass
+    # Sostituzione: i passaggi vecchi si cancellano solo dopo aver inserito i nuovi,
+    # così un errore di lettura o di embedding non fa perdere il documento.
+    # Il file in GridFS ha lo stesso contenuto (stesso hash): si riusa.
+    replaced_ids = ([row["_id"] for row in collection.find(mode_query, {"_id": 1})]
+                    if existing_chunks and duplicate_policy == "replace" else [])
 
     pdf_meta, pages = parse_document(path, include_visuals=(mode == "multimodal"))
 
@@ -716,27 +573,6 @@ def ingest_pdf(
         size=config.CHUNK_SIZE_TOKENS,
         overlap=config.CHUNK_OVERLAP_TOKENS,
     )
-
-    # Image processing opzionale: estrae immagini dal PDF, le descrive con
-    # Claude vision, aggiunge un chunk per ognuna con content_type="image".
-    process_images = user_metadata.get("process_images") and path.suffix.lower() == ".pdf"
-    images_processed = 0
-    if process_images:
-        doc_imgs = fitz.open(path)
-        images = _extract_pdf_images(doc_imgs)
-        doc_imgs.close()
-        for img in images:
-            desc = describe_image(img["bytes"])
-            if not desc:
-                continue  # skip se provider vision non disponibile o errore
-            raw_chunks.append({
-                "content": f"[IMMAGINE p.{img['page_number']} · {img['width']}×{img['height']}px] {desc}",
-                "page_number": img["page_number"],
-                "page_start": img["page_number"],
-                "page_end": img["page_number"],
-                "content_type": "image",
-            })
-            images_processed += 1
 
     now = datetime.now(timezone.utc)
 
@@ -887,6 +723,7 @@ def ingest_pdf(
 
     if docs:
         collection.insert_many(docs)
+    replaced = collection.delete_many({"_id": {"$in": replaced_ids}}).deleted_count if replaced_ids and docs else 0
 
     # Riporta esplicitamente cosa è stato applicato ai chunk: utile per debug/demo
     # (così l'utente vede a video se i suoi override sono andati a buon fine).
@@ -904,9 +741,9 @@ def ingest_pdf(
         "document_id": doc_id,
         "filename": path.name,
         "chunks_inserted": len(docs),
+        "replaced_chunks": replaced,
         "skipped": False,
         "duplicate_policy": duplicate_policy,
-        "images_processed": images_processed if process_images else 0,
         "storage": storage_ref,
         "mode": mode,
         "embedding": {

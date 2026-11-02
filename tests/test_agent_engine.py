@@ -81,3 +81,25 @@ def test_errore_salvato(env, monkeypatch):
     monkeypatch.setattr(agentic_search, "retrieve_candidates", boom)
     events, run = _run(env, question="x")
     assert events[-2]["type"] == "error" and run["status"] == "failed"
+
+
+def test_pagina_chiusa_a_meta_ricerca_non_resta_in_corso(env, monkeypatch):
+    db, sid = env
+    monkeypatch.setattr(agentic_search, "retrieve_candidates", lambda c, q, **k: ([_doc(1, "capex")], [_doc(1, "capex")]))
+    stream = agent.run_agent(agent.AgentRequest(session_id=sid, question="Capex 3M 2018?"),
+                             runs=db["agentic_runs"], sessions=db["agentic_sessions"], collection=None)
+    run_id = next(stream)["run_id"]
+    next(stream)  # piano
+    stream.close()  # come quando il browser chiude la connessione
+    run = db["agentic_runs"].find_one({"_id": run_id})
+    assert run["status"] == "failed" and "interrotta" in run["events"][-1]["comment"]
+    assert db["agentic_sessions"].find_one({"_id": sid})["active_run"] is None
+
+
+def test_ricerca_conclusa_non_diventa_fallita(env, monkeypatch):
+    db, sid = env
+    monkeypatch.setattr(agentic_search, "retrieve_candidates",
+                        lambda c, q, **k: ([_doc(1, "x", 0.02)], [_doc(1, "x", 0.02)]))
+    events, run = _run(env, question="Ricetta della pizza?")
+    agentic_memory.fail_run(db["agentic_runs"], db["agentic_sessions"], session_id=sid, run_id=run["_id"], message="tardi")
+    assert db["agentic_runs"].find_one({"_id": run["_id"]})["status"] == "blocked"
