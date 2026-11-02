@@ -117,6 +117,14 @@ def vector_index_name(mode: str) -> str:
         "multimodal": VECTOR_INDEX_MULTIMODAL_NAME,
     }[mode]
 
+# Cifratura lato client (CSFLE esplicita) della prima domanda di ogni sessione.
+# La chiave master locale (96 byte) vive in un file fuori dal progetto: senza file la
+# demo funziona lo stesso e salva il campo in chiaro.
+CSFLE_MASTER_KEY_PATH: Path = Path(os.getenv(
+    "CSFLE_MASTER_KEY_PATH", "~/.config/rag-demo/csfle-master-key.bin")).expanduser()
+CSFLE_KEY_VAULT_NAMESPACE: str = os.getenv("CSFLE_KEY_VAULT_NAMESPACE", "encryption.__keyVault")
+CSFLE_KEY_ALT_NAME: str = os.getenv("CSFLE_KEY_ALT_NAME", "rag-demo-sessioni")
+
 TESSERACT_CMD: str | None = os.getenv("TESSERACT_CMD") or None
 OFFICE_CONVERTER: str | None = os.getenv("OFFICE_CONVERTER") or None
 

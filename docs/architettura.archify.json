@@ -494,11 +494,6 @@
    "legend.erd.many": "Molti",
    "legend.erd.optional": "Facoltativo"
   },
-  "repository": {
-   "url": "https://localhost/rag-demo.git",
-   "link_mode": "local-only",
-   "revision": "0be3ad5aea7ec41f2c1d74d34ff74799a48c152c"
-  },
   "views": [
    {
     "id": "domanda",
@@ -532,6 +527,16 @@
      "memory"
     ],
     "note": "Ogni sessione e ogni passo dell'agente sono documenti in MongoDB."
+   },
+   {
+    "id": "cifratura",
+    "label": "La cifratura",
+    "focus": [
+     "engine",
+     "memory",
+     "keys"
+    ],
+    "note": "L'app cifra la prima domanda prima di inviarla: in Atlas resta un dato binario, la chiave dati sta nel key vault."
    }
   ],
   "legend": {
@@ -572,20 +577,6 @@
    "size": [
     150,
     64
-   ],
-   "sources": [
-    {
-     "path": "web/app.js",
-     "line": 32,
-     "end_line": 57,
-     "label": "flusso NDJSON"
-    },
-    {
-     "path": "web/app.js",
-     "line": 388,
-     "end_line": 440,
-     "label": "Ricerca agentica"
-    }
    ]
   },
   {
@@ -600,26 +591,6 @@
    "size": [
     160,
     64
-   ],
-   "sources": [
-    {
-     "path": "server.py",
-     "line": 99,
-     "end_line": 108,
-     "label": "/api/query"
-    },
-    {
-     "path": "server.py",
-     "line": 169,
-     "end_line": 202,
-     "label": "/api/agent"
-    },
-    {
-     "path": "server.py",
-     "line": 204,
-     "end_line": 213,
-     "label": "/api/upload"
-    }
    ]
   },
   {
@@ -635,20 +606,6 @@
    "size": [
     180,
     64
-   ],
-   "sources": [
-    {
-     "path": "src/web_services.py",
-     "line": 203,
-     "end_line": 282,
-     "label": "Query"
-    },
-    {
-     "path": "src/agent.py",
-     "line": 68,
-     "end_line": 302,
-     "label": "agente"
-    }
    ]
   },
   {
@@ -663,20 +620,6 @@
    "size": [
     180,
     64
-   ],
-   "sources": [
-    {
-     "path": "src/generation.py",
-     "line": 216,
-     "end_line": 240,
-     "label": "generazione"
-    },
-    {
-     "path": "src/ai_gateway.py",
-     "line": 59,
-     "end_line": 108,
-     "label": "gateway"
-    }
    ]
   },
   {
@@ -691,20 +634,6 @@
    "size": [
     150,
     64
-   ],
-   "sources": [
-    {
-     "path": "src/ingestion.py",
-     "line": 370,
-     "end_line": 435,
-     "label": "parsing PDF"
-    },
-    {
-     "path": "src/ingestion.py",
-     "line": 520,
-     "end_line": 561,
-     "label": "chunk Markdown"
-    }
    ]
   },
   {
@@ -719,20 +648,6 @@
    "size": [
     160,
     64
-   ],
-   "sources": [
-    {
-     "path": "src/ingestion.py",
-     "line": 612,
-     "end_line": 623,
-     "label": "salvataggio"
-    },
-    {
-     "path": "server.py",
-     "line": 88,
-     "end_line": 97,
-     "label": "download"
-    }
    ]
   },
   {
@@ -748,20 +663,6 @@
    "size": [
     180,
     64
-   ],
-   "sources": [
-    {
-     "path": "src/retrieval.py",
-     "line": 280,
-     "end_line": 300,
-     "label": "$rankFusion"
-    },
-    {
-     "path": "src/retrieval.py",
-     "line": 344,
-     "end_line": 410,
-     "label": "$rerank nativo"
-    }
    ]
   },
   {
@@ -777,20 +678,7 @@
     180,
     64
    ],
-   "sources": [
-    {
-     "path": "src/agentic_memory.py",
-     "line": 35,
-     "end_line": 56,
-     "label": "sessione"
-    },
-    {
-     "path": "src/agentic_memory.py",
-     "line": 159,
-     "end_line": 210,
-     "label": "passi e risposta"
-    }
-   ]
+   "tag": "CSFLE"
   },
   {
    "id": "chunks",
@@ -805,20 +693,20 @@
    "size": [
     180,
     64
+   ]
+  },
+  {
+   "id": "keys",
+   "type": "database",
+   "label": "Key vault",
+   "sublabel": "chiavi dati CSFLE",
+   "pos": [
+    960,
+    330
    ],
-   "sources": [
-    {
-     "path": "src/ingestion.py",
-     "line": 889,
-     "end_line": 889,
-     "label": "inserimento"
-    },
-    {
-     "path": "schemas/vector_index.json",
-     "line": 1,
-     "end_line": 30,
-     "label": "indice vettoriale"
-    }
+   "size": [
+    180,
+    64
    ]
   }
  ],
@@ -830,7 +718,8 @@
     "gridfs",
     "pipe",
     "memory",
-    "chunks"
+    "chunks",
+    "keys"
    ]
   }
  ],
@@ -900,6 +789,14 @@
    "label": "passaggi",
    "fromSide": "bottom",
    "toSide": "left"
+  },
+  {
+   "id": "encrypt",
+   "from": "memory",
+   "to": "keys",
+   "label": "chiave",
+   "fromSide": "bottom",
+   "toSide": "top"
   }
  ],
  "cards": [
@@ -927,7 +824,7 @@
    "items": [
     "Valuta se le prove coprono ogni dato richiesto",
     "Cerca di nuovo ciò che manca, chiede l'anno se i valori cambiano",
-    "Sessioni e passi salvati in MongoDB: memoria e tracciabilità"
+    "Sessioni e passi in MongoDB; la prima domanda è cifrata dall'app (CSFLE)"
    ]
   }
  ]

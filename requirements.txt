@@ -1,4 +1,7 @@
 pymongo>=4.10
+# Cifratura lato client (CSFLE esplicita) con chiave locale: basta pymongocrypt.
+# Non serve pymongo[encryption], che aggiunge anche le librerie AWS.
+pymongocrypt>=1.21
 python-dotenv>=1.0
 pymupdf>=1.24
 pymupdf4llm==1.28.2

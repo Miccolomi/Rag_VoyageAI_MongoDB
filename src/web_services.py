@@ -16,7 +16,7 @@ from typing import Any, Iterator
 from bson import ObjectId
 from gridfs import GridFS
 
-from . import config, search_scope
+from . import config, field_encryption, search_scope
 from .agent_value import summarize_run
 from .answer_quality import explain_answer_check, generate_single_answer, inspect_answer
 from .citation_check import check_citations, summarize as summarize_checks
@@ -152,6 +152,8 @@ def health(force: bool = False) -> dict[str, Any]:
         check("Documenti", "Passaggi presenti nella modalità attiva", documents)
         check("Indici di ricerca", "Atlas Search e Vector Search interrogabili", indexes)
         check("Ricerca ibrida e rerank", "Una query vera: parole, significato, fusione e rerank", pipeline)
+        check("Cifratura lato client", "CSFLE: chiave dati nel key vault, cifratura e decifratura di prova",
+              field_encryption.self_test)
     check("Modello della risposta", "Una chiamata vera al modello che scrive le risposte", answer_model)
     if (config.AGENT_LLM_PROVIDER, config.AI_GATEWAY_AGENT_MODEL if config.AGENT_LLM_PROVIDER == "gateway" else "") != \
             (config.LLM_PROVIDER, config.AI_GATEWAY_MODEL if config.LLM_PROVIDER == "gateway" else ""):

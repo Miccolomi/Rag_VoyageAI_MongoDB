@@ -59,12 +59,14 @@
       <li><b>Ricerca agentica</b>, stessa domanda → trova valori diversi in anni diversi e ti chiede quale anno vuoi.</li>
       <li>Scegli un anno, poi chiedi <b>“E nel 2017?”</b> nella stessa sessione → l’agente usa la conversazione.</li>
       <li><b>“Come si prepara la pizza napoletana?”</b> → i documenti non ne parlano: l’agente non risponde a memoria.</li>
+      <li>Premi <b>🔒 Come lo vede Atlas</b> → la prima domanda della sessione: l’applicazione la legge, in Atlas è un dato cifrato.</li>
     </ol>
     <h2>Perché MongoDB Atlas</h2>
     <div class="grid3">
       <div class="card"><h4>Un solo sistema</h4><p>Passaggi, metadati, vettori, file originali (GridFS) e memoria dell’agente nello stesso database.</p></div>
       <div class="card"><h4>Ricerca ibrida nativa</h4><p>Ricerca testuale e vettoriale fuse con <code>$rankFusion</code> e riordinate con <code>$rerank</code> in un’unica aggregazione.</p></div>
       <div class="card"><h4>Embedding gestiti</h4><p>Con la modalità <code>auto</code> Atlas genera e aggiorna i vettori Voyage direttamente nell’indice.</p></div>
+      <div class="card"><h4>Cifratura lato client</h4><p>La prima domanda di ogni sessione è cifrata dall’applicazione prima di partire (CSFLE): in Atlas e nei backup è un dato illeggibile.</p></div>
     </div>
   </template>
 
@@ -113,6 +115,7 @@
             <span>Documenti e metadati</span><span>Atlas Search</span><span>Atlas Vector Search</span>
             <span>Embedding automatici</span><span>$rankFusion + $rerank</span><span>GridFS · file originali</span>
             <span class="wide">Memoria e tracciabilità dell’agente</span>
+            <span class="wide">🔒 Cifratura lato client dei campi sensibili</span>
           </div>
           <div class="mx-voyage">modelli Voyage AI · embedding e reranking</div>
         </div>
@@ -197,8 +200,8 @@
       <article class="mx-p">
         <div class="mx-p-n">08</div>
         <h3>Sicurezza e governance</h3>
-        <p class="what"><b>Cosa fa.</b> Ricerca e vettori ereditano la sicurezza del database: cifratura, controllo degli accessi per ruolo, audit, backup. I filtri sui metadati limitano cosa ogni utente può trovare.</p>
-        <p class="why"><b>Il valore.</b> I dati usati dall’AI non escono dal perimetro governato: una sola policy, non una per sistema.</p>
+        <p class="what"><b>Cosa fa.</b> Ricerca e vettori ereditano la sicurezza del database: cifratura in transito e su disco, controllo degli accessi per ruolo, audit, backup. I campi sensibili si possono cifrare nell’applicazione, prima che arrivino al database. I filtri sui metadati limitano cosa ogni utente può trovare.</p>
+        <p class="why"><b>Il valore.</b> I dati usati dall’AI non escono dal perimetro governato: una sola policy, non una per sistema. E per i dati più delicati nemmeno chi amministra il database li può leggere.</p>
       </article>
       <article class="mx-p">
         <div class="mx-p-n">09</div>
@@ -207,6 +210,36 @@
         <p class="why"><b>Il valore.</b> I dati restano nella regione scelta, vicino alle applicazioni e ai modelli che li usano, senza legarsi a un solo cloud.</p>
       </article>
     </div>
+
+    <h2 class="mx-h2">🔒 I dati sensibili cifrati anche dentro il database</h2>
+    <p class="muted mx-sub">Con la Client-Side Field Level Encryption (CSFLE) l’applicazione cifra il campo prima di inviarlo:
+      Atlas lo conserva, lo replica e ne fa il backup senza mai poterlo leggere. In questa demo è cifrata la prima domanda di ogni sessione dell’agente.</p>
+    <div class="card cs-card" id="mx-csfle-live"><p class="muted">Lettura dell’ultima sessione da Atlas…</p></div>
+    <div class="grid3 cs-steps">
+      <div class="card"><h4>1 · Cifra l’applicazione</h4><p>Il driver MongoDB cifra il valore sul server dell’applicazione, con una chiave dati che solo l’applicazione può usare.</p></div>
+      <div class="card"><h4>2 · Atlas conserva un dato cifrato</h4><p>Sul cluster, sui dischi, nei backup e nella memoria del server il campo esiste solo cifrato. Gli altri campi restano normali: date, contatori, filtri.</p></div>
+      <div class="card"><h4>3 · Le chiavi restano del cliente</h4><p>Le chiavi dati stanno in un key vault e sono cifrate con una chiave master che il cliente custodisce, di norma in un servizio di gestione chiavi (KMS).</p></div>
+    </div>
+    <h3 class="cs-h3">Da cosa protegge, rispetto alle altre cifrature</h3>
+    <table class="cs-table">
+      <thead><tr><th>Chi prova a leggere il dato</th><th>Cifratura in transito (TLS)</th><th>Cifratura su disco</th><th>CSFLE</th></tr></thead>
+      <tbody>
+        <tr><td>Chi intercetta il traffico di rete</td><td class="y">protetto</td><td class="n">vede i dati</td><td class="y">protetto</td></tr>
+        <tr><td>Chi legge i file del database o dei backup</td><td class="n">vede i dati</td><td class="y">protetto</td><td class="y">protetto</td></tr>
+        <tr><td>Chi legge la memoria del server</td><td class="n">vede i dati</td><td class="n">vede i dati</td><td class="y">protetto</td></tr>
+        <tr><td>Un amministratore del database</td><td class="n">vede i dati</td><td class="n">vede i dati</td><td class="y">protetto</td></tr>
+      </tbody>
+    </table>
+    <p class="small muted">Ogni colonna è la protezione da sola, come la descrive la documentazione MongoDB; in pratica si usano tutte insieme. Restano visibili
+      i campi non cifrati, le dimensioni dei dati e i metadati delle operazioni. Il modello che scrive la risposta riceve il testo in chiaro, perché lo legge l’applicazione che ha la chiave.</p>
+    <details class="card mx-acc"><summary>CSFLE o Queryable Encryption?</summary>
+      <table><thead><tr><th></th><th>CSFLE</th><th>Queryable Encryption</th></tr></thead><tbody>
+        <tr><td>Ricerche sul campo cifrato</td><td>Uguaglianza, solo con l’algoritmo deterministico</td><td>Uguaglianza e intervalli, con cifratura casuale</td></tr>
+        <tr><td>Dove si dichiara</td><td>Nell’applicazione, campo per campo</td><td>Nella collection, quando la si crea</td></tr>
+        <tr><td>Scelta di questa demo</td><td>Sì: sulla prima domanda non si cercano valori e la collection esiste già</td><td>Adatta quando bisogna cercare su dati cifrati, come un codice fiscale</td></tr>
+      </tbody></table>
+      <p class="small muted">Le due tecniche non si usano sulla stessa collection.</p>
+    </details>
 
     <h2 class="mx-h2">Una domanda, una sola query in Atlas</h2>
     <div class="mx-pipe">

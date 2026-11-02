@@ -637,6 +637,45 @@ dirette e registrano il fallimento della domanda 5. Non caricare questa scheda n
 Il confronto tra strategie resta a voce; nessun runner o dashboard da costruire.
 La pagina Query continua a cercare in tutte le modalità popolate.
 
+## Cifratura lato client della memoria (CSFLE)
+
+La prima domanda di ogni sessione (`agentic_sessions.first_question`) è cifrata
+dall'applicazione **prima** di arrivare ad Atlas, con la Client-Side Field Level
+Encryption esplicita. In Atlas, nei backup e per chi amministra il cluster il campo
+è un dato binario (sottotipo BSON 6); l'applicazione, che ha la chiave, lo legge.
+
+| Elemento | Scelta della demo |
+|---|---|
+| Campo | `first_question` in `agentic_sessions` |
+| Algoritmo | `AEAD_AES_256_CBC_HMAC_SHA_512-Random`: lo stesso testo dà ogni volta un cifrato diverso; sul campo non si fanno ricerche |
+| Chiave master | 96 byte in un file locale fuori dal progetto (`CSFLE_MASTER_KEY_PATH`, predefinito `~/.config/rag-demo/csfle-master-key.bin`). In produzione va in un servizio di gestione chiavi (KMS) |
+| Chiave dati | `encryption.__keyVault`, nome `rag-demo-sessioni`, cifrata con la chiave master; indice unico su `keyAltNames` |
+| Codice | `src/field_encryption.py`; scrittura in `agentic_memory.finish_run`, lettura in `server.py` |
+
+Preparazione, una volta per cluster:
+
+```bash
+.venv/bin/python -m src.field_encryption setup
+```
+
+Crea il file della chiave master se manca (permessi `600`), la chiave dati e
+verifica cifratura e decifratura. La verifica dei componenti dell'app ripete la prova.
+
+Limiti voluti per la demo:
+
+- è cifrata solo la prima domanda: lo stesso testo resta in chiaro in
+  `memory.messages`, `memory.turn_summaries` e `agentic_runs`. La vista "Come lo vede
+  Atlas" mostra il confronto sul campo cifrato;
+- non si usa la cifratura automatica del client: la documentazione MongoDB indica che
+  `$rerank` non è supportato dai client configurati per la cifratura automatica;
+- il modello riceve comunque il testo in chiaro: CSFLE protegge il dato nel database,
+  non da chi lo elabora con la chiave;
+- con la chiave master locale in un file, chi ha il file decifra: va bene per la demo,
+  non per la produzione;
+- due Mac sullo stesso cluster devono avere lo stesso file della chiave master; senza,
+  la prima domanda delle sessioni cifrate non si legge e le nuove si salvano in chiaro;
+- cancellare la chiave dati rende illeggibili per sempre i campi cifrati con essa.
+
 ## Struttura del progetto
 
 - `app.py`: interfaccia Streamlit e orchestrazione.
@@ -646,6 +685,7 @@ La pagina Query continua a cercare in tutte le modalità popolate.
 - `src/ingestion.py`, `src/embeddings.py`: parsing, chunking e embedding.
 - `src/retrieval.py`, `src/rerank.py`, `src/generation.py`: ricerca e risposta.
 - `src/init_db.py`, `src/indexes.py`: preparazione database e indici.
+- `src/field_encryption.py`: cifratura lato client (CSFLE) della prima domanda delle sessioni.
 - `schemas/`: definizioni degli indici Atlas Search e Vector Search.
 - `prompts/`: istruzioni al LLM per risposte con fonti.
 - `tests/`: test della pipeline; `scripts/`: strumenti diagnostici.

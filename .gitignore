@@ -25,6 +25,12 @@ build/
 dist/
 *.egg-info/
 
+# chiavi di cifratura (la chiave master CSFLE deve stare fuori dal progetto)
+*master-key*.bin
+
 # copie del .env con chiavi
 .env.*
 !.env.example
+
+# file di lavoro di Archify
+.archify/

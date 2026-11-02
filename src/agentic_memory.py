@@ -1,13 +1,16 @@
 """MongoDB persistence for agentic session memory and flexible run traces."""
 from __future__ import annotations
 
+import logging
 from datetime import datetime, timezone
 from typing import Any
 from uuid import uuid4
 
 from pymongo.collection import Collection
 
-from . import config
+from . import config, field_encryption
+
+logger = logging.getLogger(__name__)
 
 MAX_SESSION_MESSAGES = 24
 MAX_SESSION_FEEDBACK = 30
@@ -204,8 +207,20 @@ def finish_run(
             },
         },
     )
-    sessions.update_one({"_id": session_id, "first_question": {"$exists": False}},
-                        {"$set": {"first_question": question[:200]}})
+    # La prima domanda è cifrata lato client (CSFLE): in Atlas resta un dato binario.
+    # Se la cifratura non è disponibile si salva in chiaro: la risposta non va mai persa.
+    # Il motivo del fallimento resta nella sessione e nel log: mai un fallimento silenzioso.
+    fields: dict[str, Any] = {}
+    try:
+        fields["first_question"] = field_encryption.encrypt_text(question[:200])
+        if not field_encryption.is_encrypted(fields["first_question"]):
+            fields["encryption_error"] = "Chiave master locale non trovata su questo computer."
+    except Exception as exc:
+        fields["first_question"] = question[:200]
+        fields["encryption_error"] = f"{type(exc).__name__}: {str(exc)[:200]}"
+    if "encryption_error" in fields:
+        logger.warning("Prima domanda salvata in chiaro: %s", fields["encryption_error"])
+    sessions.update_one({"_id": session_id, "first_question": {"$exists": False}}, {"$set": fields})
 
 
 def fail_run(

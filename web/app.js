@@ -172,7 +172,19 @@ pages.mongodb = (main) => {
   // Le capacità entrano in scena quando arrivano sullo schermo.
   const io = new IntersectionObserver((entries) => entries.forEach((e) => { if (e.isIntersecting) { e.target.classList.add("in"); io.unobserve(e.target); } }), { threshold: 0.15 });
   $$(".mx-p, .mx-arch-col, .mx-ps", main).forEach((el) => io.observe(el));
+  loadLiveProtection(main);
 };
+
+async function loadLiveProtection(main) {
+  const box = $("#mx-csfle-live", main);
+  if (!box) return;
+  try {
+    const v = await getJSON("/api/protection/latest");
+    box.innerHTML = v.empty
+      ? `<p class="muted">Ancora nessuna sessione cifrata: fai una domanda nella Ricerca agentica e torna qui per vedere il confronto dal vivo.</p>`
+      : `<div class="cs-live-tag">● dal vivo · ultima sessione della Ricerca agentica</div>` + protectionCompare(v);
+  } catch { box.innerHTML = `<p class="muted">Confronto dal vivo non disponibile: Atlas non risponde.</p>`; }
+}
 
 // ─── Componenti condivisi ──────────────────────────────────────────────
 function questionBox({ placeholder, button, onSubmit, settingsHtml = "" }) {
@@ -289,6 +301,53 @@ function lanes(container, { columns, target, items, cut = null }) {
   container.innerHTML = `<div class="lanes">${svg}</div>`;
 }
 
+// ─── Cifratura lato client: lo stesso campo visto dall'app e da Atlas ──
+function protectionCompare(v) {
+  const sv = v.stored_view || {};
+  const iso = (d) => (d ? `ISODate("${esc(String(d).slice(0, 19))}Z")` : "null");
+  const shortId = esc(String(v.id || "").slice(0, 8)) + "…";
+  // Lo stesso documento, solo i campi utili al confronto: come lo mostra Compass.
+  const doc = (fieldLine) => `<span class="j-p">{</span>
+  <span class="j-k">_id</span>: <span class="j-s">"${shortId}"</span>,
+  <span class="j-k">title</span>: <span class="j-s">"${esc(v.title || "")}"</span>,
+  <span class="j-k">created_at</span>: <span class="j-d">${iso(v.created_at)}</span>,
+  <span class="j-k">memory</span>: { <span class="j-k">turn_count</span>: <span class="j-n">${esc(v.turns ?? 0)}</span>, <span class="j-c">…</span> },
+${fieldLine}<span class="j-p">}</span>`;
+  const stored = v.encrypted
+    ? `<span class="j-hl"><span class="j-k">${esc(v.field)}</span>: <span class="j-b">Binary.createFromBase64("${esc(sv.base64)}", <b>6</b>)</span></span>`
+    : `<span class="j-hl warn"><span class="j-k">${esc(v.field)}</span>: <span class="j-s">"${esc(sv.value ?? "")}"</span></span>`;
+  const readable = v.app_view == null
+    ? `<span class="j-hl warn"><span class="j-k">${esc(v.field)}</span>: <span class="j-c">// chiave non disponibile su questo computer</span></span>`
+    : `<span class="j-hl"><span class="j-k">${esc(v.field)}</span>: <span class="j-s">"${esc(v.app_view)}"</span></span>`;
+  const atlasNote = v.encrypted
+    ? `Il campo è un dato binario di ${esc(sv.bytes)} byte (sottotipo 6 = cifrato lato client). Così lo vedono Compass, un backup, un amministratore del cluster.`
+    : v.encryption_error
+      ? `Cifratura non riuscita sul server che ha salvato questa sessione, quindi il campo è in chiaro anche in Atlas. Motivo: ${esc(v.encryption_error)}`
+      : `Sessione salvata senza cifratura: prima che fosse attiva, o da un server dove non funzionava. Il campo è in chiaro anche in Atlas. Prova con una nuova sessione.`;
+  return `<div class="cs-flow">
+      <div><b>1 · Scrivi la domanda</b><span>testo in chiaro nell’applicazione</span></div>
+      <div class="cs-step-key"><b>2 · 🔑 Il driver la cifra</b><span>AES-256 con la chiave dati, prima di spedirla</span></div>
+      <div class="cs-step-db"><b>3 · Atlas salva il cifrato</b><span>disco, repliche, backup: solo byte illeggibili</span></div>
+      <div class="cs-step-key"><b>4 · 🔑 L’app la decifra</b><span>quando rilegge la sessione, solo dove c’è la chiave</span></div>
+    </div>
+    <div class="cs-compare">
+      <div class="cs-col cs-atlas">
+        <div class="cs-head">🔒 Il documento in Atlas</div>
+        <pre class="cs-json">${doc(stored)}</pre>
+        <p class="cs-note">${atlasNote}</p>
+      </div>
+      <div class="cs-arrow" aria-hidden="true">🔑</div>
+      <div class="cs-col cs-app">
+        <div class="cs-head">Lo stesso documento letto dall’applicazione</div>
+        <pre class="cs-json light">${doc(readable)}</pre>
+        <p class="cs-note">Il driver decifra il campo con la chiave dati. Gli altri campi sono identici: non erano cifrati.</p>
+      </div>
+    </div>
+    <p class="small muted cs-foot">Sessione del ${esc(fmtDate(v.created_at))}. Algoritmo casuale: la stessa domanda dà ogni volta un cifrato diverso.
+      La chiave dati <code>${esc(v.key_alt_name)}</code> sta nel key vault <code>${esc(v.key_vault)}</code>, a sua volta cifrata con la chiave master,
+      che Atlas non ha. Titolo, date e contatori restano in chiaro: servono per elenchi e filtri e non sono sensibili.</p>`;
+}
+
 // ─── Pagina: Ricerca agentica ──────────────────────────────────────────
 pages.agente = async (main) => {
   main.append(h(`<div><h1>Ricerca agentica</h1>
@@ -297,6 +356,7 @@ pages.agente = async (main) => {
       <label style="margin:0">Sessione</label>
       <select id="session" style="max-width:320px"></select>
       <button id="new-session">＋ Nuova sessione</button>
+      <button id="show-protection" title="Lo stesso documento visto dall’applicazione e da Atlas">🔒 Come lo vede Atlas</button>
       <span class="spacer"></span>
       <select id="runs" style="max-width:300px"><option value="">Ricerche di questa sessione</option></select>
     </div>`);
@@ -312,22 +372,39 @@ pages.agente = async (main) => {
       <div style="grid-column:1/-1"><label>Indicazioni per ordinare le fonti (facoltative)</label><input type="text" id="s-instr" placeholder="Es. privilegia il rendiconto finanziario"></div>`,
   });
   main.append(box);
+  main.append(h(`<div id="protection" class="card cs-card" hidden></div>`));
   main.append(h(`<div id="live"></div>`));
   main.append(h(`<div id="result"></div>`));
   await loadSessions(main);
   $("#new-session", bar).onclick = async () => {
     const s = await sendJSON("/api/sessions", {});
     state.sessionId = s.id;
-    $("#live", main).innerHTML = ""; $("#result", main).innerHTML = "";
+    $("#live", main).innerHTML = ""; $("#result", main).innerHTML = ""; $("#protection", main).hidden = true;
     await loadSessions(main);
   };
   $("#session", bar).onchange = async (e) => {
     state.sessionId = e.target.value;
-    $("#live", main).innerHTML = ""; $("#result", main).innerHTML = "";
+    $("#live", main).innerHTML = ""; $("#result", main).innerHTML = ""; $("#protection", main).hidden = true;
     await loadRuns(main, true);
   };
   $("#runs", bar).onchange = (e) => { if (e.target.value) showRun(main, e.target.value); };
+  $("#show-protection", bar).onclick = () => toggleProtection(main);
 };
+
+async function toggleProtection(main, refresh = false) {
+  const panel = $("#protection", main);
+  if (!refresh && !panel.hidden) { panel.hidden = true; return; }
+  panel.hidden = false;
+  panel.innerHTML = `<p class="muted">Lettura del documento da Atlas…</p>`;
+  try {
+    const v = await getJSON(`/api/sessions/${state.sessionId}/protection`);
+    const head = `<div class="row"><h3 style="margin:0">La prima domanda è cifrata prima di arrivare in Atlas</h3><span class="spacer"></span>
+      <button class="small" id="close-protection">Chiudi</button></div>`;
+    panel.innerHTML = head + (v.has_question ? protectionCompare(v)
+      : `<p class="muted">Questa sessione non ha ancora domande. Fai una domanda: appena l’agente risponde, la prima domanda viene salvata cifrata e qui vedi il confronto.</p>`);
+    $("#close-protection", panel).onclick = () => { panel.hidden = true; };
+  } catch (e) { panel.innerHTML = ""; panel.append(errorBox(e.message)); }
+}
 
 async function loadSessions(main) {
   const resume = !!state.sessionId;
@@ -343,7 +420,7 @@ async function loadSessions(main) {
 async function refreshSessionList(main) {
   const list = await getJSON("/api/sessions");
   $("#session", main).innerHTML = list.map((s) => {
-    const label = `${fmtDate(s.created_at)} · ${s.turns ? `${s.turns} ${s.turns === 1 ? "domanda" : "domande"} · ${(s.first_question || "").slice(0, 50)}` : "nuova"}`;
+    const label = `${s.encrypted ? "🔒 " : ""}${fmtDate(s.created_at)} · ${s.turns ? `${s.turns} ${s.turns === 1 ? "domanda" : "domande"} · ${(s.first_question || "").slice(0, 50)}` : "nuova"}`;
     return `<option value="${esc(s.id)}" ${s.id === state.sessionId ? "selected" : ""}>${esc(label)}</option>`;
   }).join("");
 }
@@ -442,7 +519,8 @@ async function runAgent(main, { question, clarification = null }) {
   stop();
   state.busy = false; go.disabled = false;
   if (failed) live.append(errorBox("La ricerca si è interrotta: " + failed));
-  if (runId) { await showRun(main, runId, { fromLive: true }); await loadRuns(main); refreshSessionList(main); }
+  if (runId) { await showRun(main, runId, { fromLive: true }); await loadRuns(main); refreshSessionList(main);
+    if (!$("#protection", main).hidden) toggleProtection(main, true); }
 }
 
 async function showRun(main, runId, { fromLive = false } = {}) {

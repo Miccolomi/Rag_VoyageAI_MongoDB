@@ -306,6 +306,23 @@ Restart Streamlit after Python-module or environment changes; a page rerun may
 retain imported modules. This resolved the stale `RERANK_BACKEND` AttributeError.
 Restarting clears transient session results. Prompt-file edits are read per call.
 
+## Client-side encryption of agent memory (CSFLE)
+
+The first question of each session (`agentic_sessions.first_question`) is encrypted by
+the application before it reaches Atlas, using explicit Client-Side Field Level
+Encryption with the randomized algorithm. Atlas, backups and cluster administrators
+see only binary data (BSON subtype 6); the application, which holds the key, reads it.
+
+- Master key: 96 bytes in a local file outside the project (`CSFLE_MASTER_KEY_PATH`,
+  default `~/.config/rag-demo/csfle-master-key.bin`); production deployments should use a KMS.
+- Data key: `encryption.__keyVault`, alt name `rag-demo-sessioni`.
+- Setup once per cluster: `.venv/bin/python -m src.field_encryption setup`.
+- Only the first question is encrypted; the same text remains in plain form in
+  `memory.messages`, `memory.turn_summaries` and `agentic_runs`.
+- Automatic encryption is not used: MongoDB documents that `$rerank` is not supported
+  by clients configured for automatic encryption.
+- Two machines on the same cluster need the same master key file.
+
 ## Project structure
 
 - `app.py`: Streamlit UI and orchestration.
@@ -314,6 +331,7 @@ Restarting clears transient session results. Prompt-file edits are read per call
 - `src/answer_quality.py`: answer generation, role-tag cleanup and citation checks.
 - `src/`: ingestion, embedding, retrieval, reranking, generation and configuration.
 - `src/init_db.py`, `src/indexes.py`: collection and index setup.
+- `src/field_encryption.py`: client-side encryption (CSFLE) of session first questions.
 - `schemas/`: Atlas Search and Vector Search index definitions.
 - `prompts/`: LLM instructions for answers with sources.
 - `tests/`: pipeline tests; `scripts/`: diagnostic tools.

@@ -23,7 +23,7 @@ from starlette.responses import FileResponse, JSONResponse, Response, StreamingR
 from starlette.routing import Mount, Route
 from starlette.staticfiles import StaticFiles
 
-from src import agent, agentic_memory, config, search_scope, web_services
+from src import agent, agentic_memory, config, field_encryption, search_scope, web_services
 
 WEB = Path(__file__).resolve().parent / "web"
 
@@ -127,10 +127,57 @@ def api_sessions(request: Request) -> Response:
     out = []
     for r in rows:
         memory = r.get("memory") or {}
-        first = r.get("first_question") or next((t.get("question") for t in memory.get("turn_summaries") or []), None)
+        stored = r.get("first_question")
+        encrypted = field_encryption.is_encrypted(stored)
+        first = field_encryption.decrypt_text(stored) if encrypted else stored
+        if encrypted and first is None:
+            first = "domanda cifrata: chiave non disponibile"
+        first = first or next((t.get("question") for t in memory.get("turn_summaries") or []), None)
         out.append({"id": r["_id"], "title": r.get("title"), "created_at": r.get("created_at"),
-                    "updated_at": r.get("updated_at"), "turns": memory.get("turn_count", 0), "first_question": first})
+                    "updated_at": r.get("updated_at"), "turns": memory.get("turn_count", 0),
+                    "first_question": first, "encrypted": encrypted})
     return _json(out)
+
+
+_PROTECTION_FIELDS = {"title": 1, "created_at": 1, "memory.turn_count": 1, "first_question": 1,
+                      "encryption_error": 1}
+
+
+def api_session_protection(request: Request) -> Response:
+    """Lo stesso documento visto dall'applicazione (con la chiave) e com'è salvato in Atlas."""
+    sessions, runs = _collections()
+    doc = sessions.find_one({"_id": request.path_params["session_id"]}, _PROTECTION_FIELDS)
+    if not doc:
+        return _json({"error": "Sessione non trovata"}, 404)
+    return _json(_protection_view(doc))
+
+
+def api_latest_protection(request: Request) -> Response:
+    """L'ultima sessione con la prima domanda cifrata: il confronto dal vivo della home."""
+    sessions, runs = _collections()
+    doc = sessions.find_one({"first_question": {"$type": "binData"}}, _PROTECTION_FIELDS,
+                            sort=[("created_at", -1)])
+    if not doc:
+        return _json({"empty": True, "configured": field_encryption.is_configured()})
+    return _json(_protection_view(doc))
+
+
+def _protection_view(doc: dict[str, Any]) -> dict[str, Any]:
+    stored = doc.get("first_question")
+    return {
+        "id": doc["_id"], "title": doc.get("title"), "created_at": doc.get("created_at"),
+        "turns": (doc.get("memory") or {}).get("turn_count", 0),
+        "field": field_encryption.ENCRYPTED_FIELD,
+        "has_question": stored is not None,
+        "encrypted": field_encryption.is_encrypted(stored),
+        "app_view": field_encryption.decrypt_text(stored),
+        "stored_view": field_encryption.stored_view(stored),
+        "algorithm": field_encryption.ALGORITHM_NAME,
+        "key_alt_name": config.CSFLE_KEY_ALT_NAME,
+        "key_vault": config.CSFLE_KEY_VAULT_NAMESPACE,
+        "configured": field_encryption.is_configured(),
+        "encryption_error": doc.get("encryption_error"),
+    }
 
 
 def api_new_session(request: Request) -> Response:
@@ -268,6 +315,8 @@ routes = [
     Route("/api/sessions", api_sessions),
     Route("/api/sessions", api_new_session, methods=["POST"]),
     Route("/api/sessions/{session_id}/runs", api_session_runs),
+    Route("/api/sessions/{session_id}/protection", api_session_protection),
+    Route("/api/protection/latest", api_latest_protection),
     Route("/api/runs/{run_id}", api_run),
     Route("/api/agent", api_agent, methods=["POST"]),
     Route("/api/upload", api_upload, methods=["POST"]),

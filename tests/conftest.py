@@ -16,6 +16,8 @@ os.environ.setdefault("VOYAGE_API_KEY", "test-key-non-usata")
 os.environ.setdefault("LLM_PROVIDER", "anthropic")
 os.environ.setdefault("RERANK_BACKEND", "native")
 os.environ.setdefault("HYBRID_TEXT_WEIGHT_MODE", "balanced")
+# Mai la chiave vera nei test: senza file la cifratura resta spenta (si prova con un finto).
+os.environ["CSFLE_MASTER_KEY_PATH"] = "/nonexistent/rag-demo-test/csfle-master-key.bin"
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
