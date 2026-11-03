@@ -127,7 +127,22 @@ async def api_query(request: Request) -> Response:
     return _stream(web_services.run_query(
         question, mode=mode, filters=web_services.build_filters(body.get("filters")), top_k=body.get("top_k"),
         top_n=body.get("top_n"), rerank_instructions=body.get("rerank_instructions") or "",
-        fuzzy=bool(body.get("fuzzy")), threshold=body.get("threshold")))
+        fuzzy=bool(body.get("fuzzy")), threshold=body.get("threshold"), semantic=body.get("semantic")))
+
+
+async def api_query_fusion(request: Request) -> Response:
+    body = await request.json()
+    if not (body.get("question") or "").strip():
+        return _json({"error": "Scrivi una domanda."}, 400)
+    try:
+        return _json(web_services.fusion_preview(
+            (body.get("question") or "").strip(), mode=_search_mode(body), semantic=float(body.get("semantic", 50)),
+            filters=web_services.build_filters(body.get("filters")), top_k=body.get("top_k"), top_n=body.get("top_n"),
+            fuzzy=bool(body.get("fuzzy")), rerank_instructions=body.get("rerank_instructions") or ""))
+    except ValueError as exc:
+        return _json({"error": str(exc)}, 400)
+    except Exception as exc:
+        return _json({"error": web_services.public_error(exc)}, 500)
 
 
 async def api_query_compare(request: Request) -> Response:
@@ -348,6 +363,7 @@ routes = [
     Route("/api/files/{file_id}", api_file),
     Route("/api/query", api_query, methods=["POST"]),
     Route("/api/query/compare", api_query_compare, methods=["POST"]),
+    Route("/api/query/fusion", api_query_fusion, methods=["POST"]),
     Route("/api/sessions", api_sessions),
     Route("/api/sessions", api_new_session, methods=["POST"]),
     Route("/api/sessions/{session_id}/runs", api_session_runs),

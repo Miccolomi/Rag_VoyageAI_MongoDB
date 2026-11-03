@@ -21,7 +21,7 @@ from .answer_quality import explain_answer_check, generate_single_answer, inspec
 from .citation_check import check_citations, summarize as summarize_checks
 from .generation import llm_available
 from .rerank import format_rerank_query, rerank
-from .retrieval import build_native_rerank_pipeline, build_pipeline, search
+from .retrieval import build_native_rerank_pipeline, build_pipeline, search, semantic_weights
 from .retrieval_details import branch_ranks, passage_key
 
 EMBED_MODES = ["auto", "manual", "context", "multimodal"]
@@ -225,14 +225,17 @@ def _passage_view(doc: dict, *, cited: set[int] | None = None, number: int | Non
 
 def run_query(question: str, *, filters: dict | None = None, top_k: int | None = None, top_n: int | None = None,
               rerank_instructions: str = "", fuzzy: bool = False, mode: str | None = None,
-              threshold: float | None = None) -> Iterator[dict[str, Any]]:
-    """Esegue la Query e restituisce un evento per passo, poi il risultato completo."""
+              threshold: float | None = None, semantic: float | None = None) -> Iterator[dict[str, Any]]:
+    """Esegue la Query e restituisce un evento per passo, poi il risultato completo.
+
+    semantic: equilibrio della fusione (0 = parole chiave, 100 = significato, 50 = predefinito)."""
     top_k = top_k or config.RETRIEVAL_TOP_K
     top_n = top_n or config.RERANK_TOP_N
     threshold = config.RERANK_RELEVANCE_THRESHOLD if threshold is None else threshold
     timings: dict[str, float] = {}
     mode = mode or search_scope.load_active_mode(config.EMBED_MODE)
     try:
+        weights = semantic_weights(semantic)
         scope = search_scope.require_scope(mode)
     except Exception as exc:
         yield {"type": "error", "message": str(exc)}
@@ -247,7 +250,7 @@ def run_query(question: str, *, filters: dict | None = None, top_k: int | None =
     options = ({"top_n": top_n, "instructions": rerank_instructions, "include_candidates": True} if native
                else {"retrieval_mode": "hybrid"})
     pipeline = builder(question, filters=filters, top_k=top_k, embed_mode=mode, fuzzy=fuzzy,
-                       modes=scope["modes"], query_vectors=vectors, **options)
+                       modes=scope["modes"], query_vectors=vectors, weights=weights, **options)
     yield {"type": "step", "step": "atlas", "label": "Ricerca ibrida e reranking in Atlas" if native else "Ricerca ibrida in Atlas"}
     started = time.perf_counter()
     try:
@@ -270,7 +273,8 @@ def run_query(question: str, *, filters: dict | None = None, top_k: int | None =
         reranked = raw[:top_n]
     top_score = reranked[0].get("_rerank_score") if reranked else None
     retrieval = {"pipeline": search_scope.pipeline_code(pipeline, scope), "scope": scope["modes"],
-                 "weights": search_scope.weights_caption(scope["modes"]), "dedup": search_scope.dedup_caption(),
+                 "weights": search_scope.weights_caption(scope["modes"], weights), "dedup": search_scope.dedup_caption(),
+                 "semantic": 50 if semantic is None else semantic,
                  "rerank_query": format_rerank_query(question, rerank_instructions),
                  "fused": [_passage_view(d) for d in raw],
                  "reranked_all": [_passage_view(d) for d in (atlas if native else reranked)],
@@ -302,6 +306,36 @@ def run_query(question: str, *, filters: dict | None = None, top_k: int | None =
            "sources": [_passage_view(d, cited=cited, number=n) for n, d in enumerate(reranked, 1)],
            "model": reviewed["answer"].get("model"), "usage": reviewed["answer"].get("usage") or {},
            "timings": timings, **retrieval}
+
+
+def fusion_preview(question: str, *, mode: str | None, semantic: float, filters: dict | None = None,
+                   top_k: int | None = None, top_n: int | None = None, fuzzy: bool = False,
+                   rerank_instructions: str = "") -> dict[str, Any]:
+    """Stessa ricerca della Query con altri pesi di $rankFusion, senza chiamare il modello:
+    la classifica della fusione e i passaggi che dopo il reranking andrebbero al modello."""
+    top_k = top_k or config.RETRIEVAL_TOP_K
+    top_n = min(top_n or config.RERANK_TOP_N, top_k)
+    weights = semantic_weights(semantic)
+    mode = mode or search_scope.load_active_mode(config.EMBED_MODE)
+    scope = search_scope.require_scope(mode)
+    vectors = search_scope.prepare_vectors(question, scope["modes"])
+    started = time.perf_counter()
+    if config.RERANK_BACKEND == "native":
+        pipeline = build_native_rerank_pipeline(
+            question, filters=filters, top_k=top_k, top_n=top_n, embed_mode=mode, fuzzy=fuzzy, modes=scope["modes"],
+            query_vectors=vectors, instructions=rerank_instructions or None, include_candidates=True, weights=weights)
+        atlas = list(config.get_collection().aggregate(pipeline))
+        fused = sorted(atlas, key=lambda d: d.get("_hybrid_rank", 10 ** 9))
+        reranked = atlas[:top_n]
+    else:
+        pipeline = build_pipeline(question, filters=filters, top_k=top_k, embed_mode=mode, fuzzy=fuzzy,
+                                  modes=scope["modes"], query_vectors=vectors, weights=weights)
+        fused = list(config.get_collection().aggregate(pipeline))
+        reranked = (rerank(question, fused, top_n=top_n, instructions=rerank_instructions)
+                    if config.VOYAGE_API_KEY else fused[:top_n])
+    return {"semantic": semantic, "weights": search_scope.weights_caption(scope["modes"], weights),
+            "fused": [_passage_view(d) for d in fused[:10]], "sent": [_passage_view(d) for d in reranked],
+            "duration_ms": round((time.perf_counter() - started) * 1000)}
 
 
 def query_comparisons(question: str, *, filters: dict | None, top_k: int, fuzzy: bool = False,

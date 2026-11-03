@@ -438,3 +438,10 @@ button.pill { border: 0; cursor: pointer; font: inherit; font-size: 12.5px; }
 .seg button.on { background: var(--accent-soft); color: var(--accent); box-shadow: inset 0 0 0 1px var(--accent); }
 .seg button:disabled { opacity: .35; cursor: not-allowed; }
 .seg button:not(.on):not(:disabled):hover { color: var(--text); }
+
+.wslider { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.wslider input[type=range] { flex: 1; min-width: 160px; max-width: 360px; accent-color: var(--accent); }
+.fusion-play { margin-top: 18px; padding-top: 14px; border-top: 1px dashed var(--border-strong); }
+.fusion-play .rank-list > div { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.mv { display: inline-block; min-width: 34px; font-size: 11px; font-weight: 650; color: var(--muted); }
+.mv.up { color: var(--ok); } .mv.down { color: var(--danger); } .mv.new { color: var(--agent); }

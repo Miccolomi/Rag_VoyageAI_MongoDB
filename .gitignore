@@ -14,8 +14,6 @@ data/financebench_100/
 *.md
 !README.md
 !README.it.md
-!DEMO_PLAN.md
-!DEMO_QUERIES.md
 .claude/
 .pytest_cache/
 .coverage
@@ -31,5 +29,3 @@ dist/
 .env.*
 !.env.example
 
-# file di lavoro di Archify
-.archify/

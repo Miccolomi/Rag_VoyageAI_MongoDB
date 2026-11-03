@@ -68,7 +68,6 @@ AGENT_LLM_PROVIDER: str = (os.getenv("AGENT_LLM_PROVIDER") or LLM_PROVIDER).lowe
 
 OLLAMA_BASE_URL: str = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434").rstrip("/")
 OLLAMA_MODEL: str = os.getenv("OLLAMA_MODEL", "mistral-nemo:latest")
-OLLAMA_VISION_MODEL: str = os.getenv("OLLAMA_VISION_MODEL", "llava:7b")
 # Contesto di Ollama (prompt + risposta, in token). Lo stesso valore per tutte le chiamate:
 # se cambia tra una chiamata e l'altra, Ollama ricarica il modello.
 OLLAMA_NUM_CTX: int = int(os.getenv("OLLAMA_NUM_CTX", "8192"))

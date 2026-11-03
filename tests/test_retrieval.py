@@ -1,5 +1,7 @@
 import json
 
+import pytest
+
 from src import config, retrieval
 from src.retrieval import build_native_rerank_pipeline, build_pipeline, fusion_weights
 
@@ -110,3 +112,20 @@ def test_pesi_uguali_con_piu_modalita(monkeypatch):
     # Con "balanced" il testo a peso 2 escludeva tutti i risultati semantici dai primi k.
     monkeypatch.setattr(config, "HYBRID_TEXT_WEIGHT_MODE", "equal")
     assert set(fusion_weights(["vector_auto", "vector_manual", "text"]).values()) == {1.0}
+
+
+def test_cursore_semantico_diventa_pesi():
+    from src.retrieval import semantic_weights
+    assert semantic_weights(None) is None and semantic_weights(50) is None
+    assert semantic_weights(0) == {"text": 2.0, "vector": 0.0}
+    assert semantic_weights(80) == {"text": 0.4, "vector": 1.6}
+    with pytest.raises(ValueError):
+        semantic_weights(120)
+
+
+def test_pesi_passati_a_rankfusion_anche_con_rerank_nativo():
+    from src.retrieval import semantic_weights
+    pipeline = build_native_rerank_pipeline("capex", top_k=10, top_n=5, embed_mode="all", modes=["auto", "manual"],
+                                            query_vectors={"manual": [0.1] * 4}, weights=semantic_weights(20))
+    weights = pipeline[0]["$rankFusion"]["combination"]["weights"]
+    assert weights == {"vector_auto": 0.4, "vector_manual": 0.4, "text": 1.6}

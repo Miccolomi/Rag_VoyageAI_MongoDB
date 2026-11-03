@@ -2,6 +2,9 @@ pymongo>=4.10
 # Cifratura lato client (CSFLE esplicita) con chiave locale: basta pymongocrypt.
 # Non serve pymongo[encryption], che aggiunge anche le librerie AWS.
 pymongocrypt>=1.21
+# cryptography 49 e 50 non hanno pacchetti già compilati per i Mac Intel: senza questo limite
+# l'installazione prova a compilarla e fallisce. Sugli altri sistemi nessun vincolo.
+cryptography<49; sys_platform == "darwin" and platform_machine == "x86_64"
 python-dotenv>=1.0
 pymupdf>=1.24
 pymupdf4llm==1.28.2

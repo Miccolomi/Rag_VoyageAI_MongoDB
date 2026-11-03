@@ -1,0 +1,709 @@
+{
+ "description": "I 100 PDF FinanceBench usati dalla demo, fissati a una versione precisa del repository di origine. Li scarica scripts/prepare_financebench.py e controlla che ogni file sia identico all'originale.",
+ "source": "https://github.com/patronus-ai/financebench",
+ "revision": "cc39aeb4afdf33909ee1412188bf89035950c2eb",
+ "selected_at": "2026-10-19T07:36:23.093889+00:00",
+ "questions_url": "https://raw.githubusercontent.com/patronus-ai/financebench/cc39aeb4afdf33909ee1412188bf89035950c2eb/data/financebench_open_source.jsonl",
+ "documents": [
+  {
+   "filename": "3M_2018_10K.pdf",
+   "url": "https://raw.githubusercontent.com/patronus-ai/financebench/cc39aeb4afdf33909ee1412188bf89035950c2eb/pdfs/3M_2018_10K.pdf",
+   "git_blob_sha": "abb98c81799b979c65b18c863a7a783d053945b6",
+   "size_bytes": 1252586,
+   "has_annotated_question": true
+  },
+  {
+   "filename": "ADOBE_2022_10K.pdf",
+   "url": "https://raw.githubusercontent.com/patronus-ai/financebench/cc39aeb4afdf33909ee1412188bf89035950c2eb/pdfs/ADOBE_2022_10K.pdf",
+   "git_blob_sha": "76bc2937b5264bb3b92b1074912d069cc1cf9976",
+   "size_bytes": 620288,
+   "has_annotated_question": true
+  },
+  {
+   "filename": "AMAZON_2022_10K.pdf",
+   "url": "https://raw.githubusercontent.com/patronus-ai/financebench/cc39aeb4afdf33909ee1412188bf89035950c2eb/pdfs/AMAZON_2022_10K.pdf",
+   "git_blob_sha": "a356f262500e568283a4d694148fecae28ff3707",
+   "size_bytes": 712683,
+   "has_annotated_question": false
+  },
+  {
+   "filename": "3M_2022_10K.pdf",
+   "url": "https://raw.githubusercontent.com/patronus-ai/financebench/cc39aeb4afdf33909ee1412188bf89035950c2eb/pdfs/3M_2022_10K.pdf",
+   "git_blob_sha": "ac32e3076d5fc0378b5123b204eece5fc5d39dac",
+   "size_bytes": 1655681,
+   "has_annotated_question": true
+  },
+  {
+   "filename": "3M_2023Q2_10Q.pdf",
+   "url": "https://raw.githubusercontent.com/patronus-ai/financebench/cc39aeb4afdf33909ee1412188bf89035950c2eb/pdfs/3M_2023Q2_10Q.pdf",
+   "git_blob_sha": "d902fe2dc015721ce474b354fb3c8d6fb7a6501b",
+   "size_bytes": 5287301,
+   "has_annotated_question": true
+  },
+  {
+   "filename": "ACTIVISIONBLIZZARD_2019_10K.pdf",
+   "url": "https://raw.githubusercontent.com/patronus-ai/financebench/cc39aeb4afdf33909ee1412188bf89035950c2eb/pdfs/ACTIVISIONBLIZZARD_2019_10K.pdf",
+   "git_blob_sha": "4ea850e23e0921c8df3376f5a8093fbeaa169045",
+   "size_bytes": 1274941,
+   "has_annotated_question": true
+  },
+  {
+   "filename": "ADOBE_2015_10K.pdf",
+   "url": "https://raw.githubusercontent.com/patronus-ai/financebench/cc39aeb4afdf33909ee1412188bf89035950c2eb/pdfs/ADOBE_2015_10K.pdf",
+   "git_blob_sha": "aa6c90ecf4b620f14e78a013a53a836a64c8cee7",
+   "size_bytes": 1457725,
+   "has_annotated_question": true
+  },
+  {
+   "filename": "ADOBE_2016_10K.pdf",
+   "url": "https://raw.githubusercontent.com/patronus-ai/financebench/cc39aeb4afdf33909ee1412188bf89035950c2eb/pdfs/ADOBE_2016_10K.pdf",
+   "git_blob_sha": "caf61c8dd39694a5e379c5ff74c108b2e83f2cc9",
+   "size_bytes": 4171413,
+   "has_annotated_question": true
+  },
+  {
+   "filename": "ADOBE_2017_10K.pdf",
+   "url": "https://raw.githubusercontent.com/patronus-ai/financebench/cc39aeb4afdf33909ee1412188bf89035950c2eb/pdfs/ADOBE_2017_10K.pdf",
+   "git_blob_sha": "e126b7b52116e1a5650e7ac25469d6f55e07d679",
+   "size_bytes": 4028448,
+   "has_annotated_question": true
+  },
+  {
+   "filename": "AES_2022_10K.pdf",
+   "url": "https://raw.githubusercontent.com/patronus-ai/financebench/cc39aeb4afdf33909ee1412188bf89035950c2eb/pdfs/AES_2022_10K.pdf",
+   "git_blob_sha": "65ea6bb7e1ed0474779b0160a6f5101a47aec9c3",
+   "size_bytes": 4479324,
+   "has_annotated_question": true
+  },
+  {
+   "filename": "AMAZON_2017_10K.pdf",
+   "url": "https://raw.githubusercontent.com/patronus-ai/financebench/cc39aeb4afdf33909ee1412188bf89035950c2eb/pdfs/AMAZON_2017_10K.pdf",
+   "git_blob_sha": "590ff1725b8f51a3809157db039da074c912b6c8",
+   "size_bytes": 627047,
+   "has_annotated_question": true
+  },
+  {
+   "filename": "AMAZON_2019_10K.pdf",
+   "url": "https://raw.githubusercontent.com/patronus-ai/financebench/cc39aeb4afdf33909ee1412188bf89035950c2eb/pdfs/AMAZON_2019_10K.pdf",
+   "git_blob_sha": "aeb8567b4522635d943e02f367e610cff9fd9246",
+   "size_bytes": 619184,
+   "has_annotated_question": true
+  },
+  {
+   "filename": "AMCOR_2020_10K.pdf",
+   "url": "https://raw.githubusercontent.com/patronus-ai/financebench/cc39aeb4afdf33909ee1412188bf89035950c2eb/pdfs/AMCOR_2020_10K.pdf",
+   "git_blob_sha": "001df3e4572424f8ca4b8e89370ea3a535c8d67c",
+   "size_bytes": 8364895,
+   "has_annotated_question": true
+  },
+  {
+   "filename": "AMCOR_2022_8K_dated-2022-07-01.pdf",
+   "url": "https://raw.githubusercontent.com/patronus-ai/financebench/cc39aeb4afdf33909ee1412188bf89035950c2eb/pdfs/AMCOR_2022_8K_dated-2022-07-01.pdf",
+   "git_blob_sha": "778c0024d0e49abffa4b1adb0ea9f20c5bdf0248",
+   "size_bytes": 147921,
+   "has_annotated_question": true
+  },
+  {
+   "filename": "AMCOR_2023Q2_10Q.pdf",
+   "url": "https://raw.githubusercontent.com/patronus-ai/financebench/cc39aeb4afdf33909ee1412188bf89035950c2eb/pdfs/AMCOR_2023Q2_10Q.pdf",
+   "git_blob_sha": "8ed88c1adf345b7be08217dcd64b4cb809afde03",
+   "size_bytes": 455017,
+   "has_annotated_question": true
+  },
+  {
+   "filename": "AMCOR_2023Q4_EARNINGS.pdf",
+   "url": "https://raw.githubusercontent.com/patronus-ai/financebench/cc39aeb4afdf33909ee1412188bf89035950c2eb/pdfs/AMCOR_2023Q4_EARNINGS.pdf",
+   "git_blob_sha": "3868d350122c8be7f7db63de5d7f875d826bf7b7",
+   "size_bytes": 244702,
+   "has_annotated_question": true
+  },
+  {
+   "filename": "AMCOR_2023_10K.pdf",
+   "url": "https://raw.githubusercontent.com/patronus-ai/financebench/cc39aeb4afdf33909ee1412188bf89035950c2eb/pdfs/AMCOR_2023_10K.pdf",
+   "git_blob_sha": "3c8596d39a39cebdeef84e8fbfedc7231cbd8b7e",
+   "size_bytes": 1108309,
+   "has_annotated_question": true
+  },
+  {
+   "filename": "AMD_2015_10K.pdf",
+   "url": "https://raw.githubusercontent.com/patronus-ai/financebench/cc39aeb4afdf33909ee1412188bf89035950c2eb/pdfs/AMD_2015_10K.pdf",
+   "git_blob_sha": "dacb9e66dab18b6da798eee9aacde2ba9162b3b7",
+   "size_bytes": 2474122,
+   "has_annotated_question": true
+  },
+  {
+   "filename": "AMD_2022_10K.pdf",
+   "url": "https://raw.githubusercontent.com/patronus-ai/financebench/cc39aeb4afdf33909ee1412188bf89035950c2eb/pdfs/AMD_2022_10K.pdf",
+   "git_blob_sha": "9cc40ffc8ed20286a2c8ae5cc860816f05b9ce6e",
+   "size_bytes": 5122473,
+   "has_annotated_question": true
+  },
+  {
+   "filename": "AMERICANEXPRESS_2022_10K.pdf",
+   "url": "https://raw.githubusercontent.com/patronus-ai/financebench/cc39aeb4afdf33909ee1412188bf89035950c2eb/pdfs/AMERICANEXPRESS_2022_10K.pdf",
+   "git_blob_sha": "da116dc7c7b79585ece010858ed1241b18d5353e",
+   "size_bytes": 2436166,
+   "has_annotated_question": true
+  },
+  {
+   "filename": "AMERICANWATERWORKS_2020_10K.pdf",
+   "url": "https://raw.githubusercontent.com/patronus-ai/financebench/cc39aeb4afdf33909ee1412188bf89035950c2eb/pdfs/AMERICANWATERWORKS_2020_10K.pdf",
+   "git_blob_sha": "9bd247cf7e924645df16b1856e14888671fa1777",
+   "size_bytes": 1437123,
+   "has_annotated_question": true
+  },
+  {
+   "filename": "AMERICANWATERWORKS_2021_10K.pdf",
+   "url": "https://raw.githubusercontent.com/patronus-ai/financebench/cc39aeb4afdf33909ee1412188bf89035950c2eb/pdfs/AMERICANWATERWORKS_2021_10K.pdf",
+   "git_blob_sha": "b716b0e0aece594ccb45d0006b183e49e24a1595",
+   "size_bytes": 1975636,
+   "has_annotated_question": true
+  },
+  {
+   "filename": "AMERICANWATERWORKS_2022_10K.pdf",
+   "url": "https://raw.githubusercontent.com/patronus-ai/financebench/cc39aeb4afdf33909ee1412188bf89035950c2eb/pdfs/AMERICANWATERWORKS_2022_10K.pdf",
+   "git_blob_sha": "36c472d4671d6bf59a1284cb477de17e0dc4872c",
+   "size_bytes": 2729077,
+   "has_annotated_question": true
+  },
+  {
+   "filename": "BESTBUY_2017_10K.pdf",
+   "url": "https://raw.githubusercontent.com/patronus-ai/financebench/cc39aeb4afdf33909ee1412188bf89035950c2eb/pdfs/BESTBUY_2017_10K.pdf",
+   "git_blob_sha": "1f876ed043f4e1c8dc146bc8aff1a66f5c5120a5",
+   "size_bytes": 776434,
+   "has_annotated_question": true
+  },
+  {
+   "filename": "BESTBUY_2019_10K.pdf",
+   "url": "https://raw.githubusercontent.com/patronus-ai/financebench/cc39aeb4afdf33909ee1412188bf89035950c2eb/pdfs/BESTBUY_2019_10K.pdf",
+   "git_blob_sha": "8c6aa64ecbca0b67df20e9dcf12442646e05de99",
+   "size_bytes": 782117,
+   "has_annotated_question": true
+  },
+  {
+   "filename": "BESTBUY_2023_10K.pdf",
+   "url": "https://raw.githubusercontent.com/patronus-ai/financebench/cc39aeb4afdf33909ee1412188bf89035950c2eb/pdfs/BESTBUY_2023_10K.pdf",
+   "git_blob_sha": "bf024d862a895af1fb75bdb632fa31aa04d746ad",
+   "size_bytes": 703034,
+   "has_annotated_question": true
+  },
+  {
+   "filename": "BESTBUY_2024Q2_10Q.pdf",
+   "url": "https://raw.githubusercontent.com/patronus-ai/financebench/cc39aeb4afdf33909ee1412188bf89035950c2eb/pdfs/BESTBUY_2024Q2_10Q.pdf",
+   "git_blob_sha": "7abf896d4a58dfd3ced2d3a03fe877351a94c3cf",
+   "size_bytes": 442386,
+   "has_annotated_question": true
+  },
+  {
+   "filename": "BLOCK_2016_10K.pdf",
+   "url": "https://raw.githubusercontent.com/patronus-ai/financebench/cc39aeb4afdf33909ee1412188bf89035950c2eb/pdfs/BLOCK_2016_10K.pdf",
+   "git_blob_sha": "835a85395c69dd0462ed66c536d90d2e2310f707",
+   "size_bytes": 864350,
+   "has_annotated_question": true
+  },
+  {
+   "filename": "BLOCK_2020_10K.pdf",
+   "url": "https://raw.githubusercontent.com/patronus-ai/financebench/cc39aeb4afdf33909ee1412188bf89035950c2eb/pdfs/BLOCK_2020_10K.pdf",
+   "git_blob_sha": "e5e8c07502b2be3b886ae79d7e67ccd6612ead1b",
+   "size_bytes": 1159158,
+   "has_annotated_question": true
+  },
+  {
+   "filename": "BOEING_2018_10K.pdf",
+   "url": "https://raw.githubusercontent.com/patronus-ai/financebench/cc39aeb4afdf33909ee1412188bf89035950c2eb/pdfs/BOEING_2018_10K.pdf",
+   "git_blob_sha": "1496f6ad88950b37f0733fcdad091097f9a4bd32",
+   "size_bytes": 967741,
+   "has_annotated_question": true
+  },
+  {
+   "filename": "BOEING_2022_10K.pdf",
+   "url": "https://raw.githubusercontent.com/patronus-ai/financebench/cc39aeb4afdf33909ee1412188bf89035950c2eb/pdfs/BOEING_2022_10K.pdf",
+   "git_blob_sha": "17884be94225d64ef32cf97edcf2ee5164251d00",
+   "size_bytes": 1366995,
+   "has_annotated_question": true
+  },
+  {
+   "filename": "COCACOLA_2017_10K.pdf",
+   "url": "https://raw.githubusercontent.com/patronus-ai/financebench/cc39aeb4afdf33909ee1412188bf89035950c2eb/pdfs/COCACOLA_2017_10K.pdf",
+   "git_blob_sha": "340399e1fd68b05f4efbdba60985302d23c6689e",
+   "size_bytes": 1790599,
+   "has_annotated_question": true
+  },
+  {
+   "filename": "COCACOLA_2021_10K.pdf",
+   "url": "https://raw.githubusercontent.com/patronus-ai/financebench/cc39aeb4afdf33909ee1412188bf89035950c2eb/pdfs/COCACOLA_2021_10K.pdf",
+   "git_blob_sha": "ed330eb7fa976673895294e6d5162691b1fce08b",
+   "size_bytes": 9762541,
+   "has_annotated_question": true
+  },
+  {
+   "filename": "COCACOLA_2022_10K.pdf",
+   "url": "https://raw.githubusercontent.com/patronus-ai/financebench/cc39aeb4afdf33909ee1412188bf89035950c2eb/pdfs/COCACOLA_2022_10K.pdf",
+   "git_blob_sha": "eceb731f67dd9ca43bdab6b2eb40e6fff957022e",
+   "size_bytes": 9485744,
+   "has_annotated_question": true
+  },
+  {
+   "filename": "CORNING_2020_10K.pdf",
+   "url": "https://raw.githubusercontent.com/patronus-ai/financebench/cc39aeb4afdf33909ee1412188bf89035950c2eb/pdfs/CORNING_2020_10K.pdf",
+   "git_blob_sha": "5f0f7ff9d8d990ff72bf183fdb64c2d898b9d6e4",
+   "size_bytes": 1180865,
+   "has_annotated_question": true
+  },
+  {
+   "filename": "CORNING_2021_10K.pdf",
+   "url": "https://raw.githubusercontent.com/patronus-ai/financebench/cc39aeb4afdf33909ee1412188bf89035950c2eb/pdfs/CORNING_2021_10K.pdf",
+   "git_blob_sha": "f8db7c6e99706f8cb81ab5c6eb18a156daaeff29",
+   "size_bytes": 1131912,
+   "has_annotated_question": true
+  },
+  {
+   "filename": "CORNING_2022_10K.pdf",
+   "url": "https://raw.githubusercontent.com/patronus-ai/financebench/cc39aeb4afdf33909ee1412188bf89035950c2eb/pdfs/CORNING_2022_10K.pdf",
+   "git_blob_sha": "feb04ff6269eff891b771c5ee082654bf78fe504",
+   "size_bytes": 1399926,
+   "has_annotated_question": true
+  },
+  {
+   "filename": "COSTCO_2021_10K.pdf",
+   "url": "https://raw.githubusercontent.com/patronus-ai/financebench/cc39aeb4afdf33909ee1412188bf89035950c2eb/pdfs/COSTCO_2021_10K.pdf",
+   "git_blob_sha": "8969f7a2601c92a9a1a65fcd137b94a868074e29",
+   "size_bytes": 765319,
+   "has_annotated_question": true
+  },
+  {
+   "filename": "CVSHEALTH_2018_10K.pdf",
+   "url": "https://raw.githubusercontent.com/patronus-ai/financebench/cc39aeb4afdf33909ee1412188bf89035950c2eb/pdfs/CVSHEALTH_2018_10K.pdf",
+   "git_blob_sha": "86b69cd2963a6b0a35491d8ffcf08da01c9680eb",
+   "size_bytes": 1868195,
+   "has_annotated_question": true
+  },
+  {
+   "filename": "CVSHEALTH_2022_10K.pdf",
+   "url": "https://raw.githubusercontent.com/patronus-ai/financebench/cc39aeb4afdf33909ee1412188bf89035950c2eb/pdfs/CVSHEALTH_2022_10K.pdf",
+   "git_blob_sha": "305551b7e76f8ba9c4b43892b13d978c58b3f3de",
+   "size_bytes": 1898137,
+   "has_annotated_question": true
+  },
+  {
+   "filename": "FOOTLOCKER_2022_8K_dated-2022-05-20.pdf",
+   "url": "https://raw.githubusercontent.com/patronus-ai/financebench/cc39aeb4afdf33909ee1412188bf89035950c2eb/pdfs/FOOTLOCKER_2022_8K_dated-2022-05-20.pdf",
+   "git_blob_sha": "b9ca923a7e0e728e8656613c4f27b24c52a2ce8a",
+   "size_bytes": 116133,
+   "has_annotated_question": true
+  },
+  {
+   "filename": "FOOTLOCKER_2022_8K_dated_2022-08-19.pdf",
+   "url": "https://raw.githubusercontent.com/patronus-ai/financebench/cc39aeb4afdf33909ee1412188bf89035950c2eb/pdfs/FOOTLOCKER_2022_8K_dated_2022-08-19.pdf",
+   "git_blob_sha": "924c90464df67e3f65c9ffe47df6e3f2cf3f087d",
+   "size_bytes": 316459,
+   "has_annotated_question": true
+  },
+  {
+   "filename": "GENERALMILLS_2019_10K.pdf",
+   "url": "https://raw.githubusercontent.com/patronus-ai/financebench/cc39aeb4afdf33909ee1412188bf89035950c2eb/pdfs/GENERALMILLS_2019_10K.pdf",
+   "git_blob_sha": "54ff2e0b33984f2b4ce028005d39d1fb7c057b37",
+   "size_bytes": 920782,
+   "has_annotated_question": true
+  },
+  {
+   "filename": "GENERALMILLS_2020_10K.pdf",
+   "url": "https://raw.githubusercontent.com/patronus-ai/financebench/cc39aeb4afdf33909ee1412188bf89035950c2eb/pdfs/GENERALMILLS_2020_10K.pdf",
+   "git_blob_sha": "aa43c2cd625b8823619e216003cd9673fbe9f37c",
+   "size_bytes": 2342475,
+   "has_annotated_question": true
+  },
+  {
+   "filename": "GENERALMILLS_2022_10K.pdf",
+   "url": "https://raw.githubusercontent.com/patronus-ai/financebench/cc39aeb4afdf33909ee1412188bf89035950c2eb/pdfs/GENERALMILLS_2022_10K.pdf",
+   "git_blob_sha": "5f269a36d3d616eef9b08466badd76db0ae607ff",
+   "size_bytes": 1083414,
+   "has_annotated_question": true
+  },
+  {
+   "filename": "JOHNSON_JOHNSON_2022Q4_EARNINGS.pdf",
+   "url": "https://raw.githubusercontent.com/patronus-ai/financebench/cc39aeb4afdf33909ee1412188bf89035950c2eb/pdfs/JOHNSON_JOHNSON_2022Q4_EARNINGS.pdf",
+   "git_blob_sha": "759d000650c2aea41356f9a6f4229be62fe977f3",
+   "size_bytes": 729392,
+   "has_annotated_question": true
+  },
+  {
+   "filename": "JOHNSON_JOHNSON_2022_10K.pdf",
+   "url": "https://raw.githubusercontent.com/patronus-ai/financebench/cc39aeb4afdf33909ee1412188bf89035950c2eb/pdfs/JOHNSON_JOHNSON_2022_10K.pdf",
+   "git_blob_sha": "eba313ca98f81a2cabc19c7dd931c92c3def3a66",
+   "size_bytes": 1941368,
+   "has_annotated_question": true
+  },
+  {
+   "filename": "JOHNSON_JOHNSON_2023Q2_EARNINGS.pdf",
+   "url": "https://raw.githubusercontent.com/patronus-ai/financebench/cc39aeb4afdf33909ee1412188bf89035950c2eb/pdfs/JOHNSON_JOHNSON_2023Q2_EARNINGS.pdf",
+   "git_blob_sha": "0da3128432142f265e2b703a40d2f8adc904300a",
+   "size_bytes": 1212840,
+   "has_annotated_question": true
+  },
+  {
+   "filename": "JOHNSON_JOHNSON_2023_8K_dated-2023-08-30.pdf",
+   "url": "https://raw.githubusercontent.com/patronus-ai/financebench/cc39aeb4afdf33909ee1412188bf89035950c2eb/pdfs/JOHNSON_JOHNSON_2023_8K_dated-2023-08-30.pdf",
+   "git_blob_sha": "f4fa338d9d15baa099a60468e66df0c87e106d52",
+   "size_bytes": 455282,
+   "has_annotated_question": true
+  },
+  {
+   "filename": "JPMORGAN_2021Q1_10Q.pdf",
+   "url": "https://raw.githubusercontent.com/patronus-ai/financebench/cc39aeb4afdf33909ee1412188bf89035950c2eb/pdfs/JPMORGAN_2021Q1_10Q.pdf",
+   "git_blob_sha": "ae433e63725e78d0132001bfafe5bcdc97f65b26",
+   "size_bytes": 2285253,
+   "has_annotated_question": true
+  },
+  {
+   "filename": "JPMORGAN_2022Q2_10Q.pdf",
+   "url": "https://raw.githubusercontent.com/patronus-ai/financebench/cc39aeb4afdf33909ee1412188bf89035950c2eb/pdfs/JPMORGAN_2022Q2_10Q.pdf",
+   "git_blob_sha": "f6b21788fd5277349db5e3e513d9326a5f811769",
+   "size_bytes": 2290421,
+   "has_annotated_question": true
+  },
+  {
+   "filename": "JPMORGAN_2022_10K.pdf",
+   "url": "https://raw.githubusercontent.com/patronus-ai/financebench/cc39aeb4afdf33909ee1412188bf89035950c2eb/pdfs/JPMORGAN_2022_10K.pdf",
+   "git_blob_sha": "d5261349ab800bad30422bc05dedaa8ad2a329b5",
+   "size_bytes": 6947859,
+   "has_annotated_question": true
+  },
+  {
+   "filename": "JPMORGAN_2023Q2_10Q.pdf",
+   "url": "https://raw.githubusercontent.com/patronus-ai/financebench/cc39aeb4afdf33909ee1412188bf89035950c2eb/pdfs/JPMORGAN_2023Q2_10Q.pdf",
+   "git_blob_sha": "c43dd56d3917d866ad3404b102bf6ea769000360",
+   "size_bytes": 2573600,
+   "has_annotated_question": true
+  },
+  {
+   "filename": "KRAFTHEINZ_2019_10K.pdf",
+   "url": "https://raw.githubusercontent.com/patronus-ai/financebench/cc39aeb4afdf33909ee1412188bf89035950c2eb/pdfs/KRAFTHEINZ_2019_10K.pdf",
+   "git_blob_sha": "4068e6bd710c89d1752497245b0a9b6deff58a93",
+   "size_bytes": 1531923,
+   "has_annotated_question": true
+  },
+  {
+   "filename": "LOCKHEEDMARTIN_2020_10K.pdf",
+   "url": "https://raw.githubusercontent.com/patronus-ai/financebench/cc39aeb4afdf33909ee1412188bf89035950c2eb/pdfs/LOCKHEEDMARTIN_2020_10K.pdf",
+   "git_blob_sha": "bc86a5da3b2ddc9cc829da67958f69b922afa4ad",
+   "size_bytes": 1372193,
+   "has_annotated_question": true
+  },
+  {
+   "filename": "LOCKHEEDMARTIN_2021_10K.pdf",
+   "url": "https://raw.githubusercontent.com/patronus-ai/financebench/cc39aeb4afdf33909ee1412188bf89035950c2eb/pdfs/LOCKHEEDMARTIN_2021_10K.pdf",
+   "git_blob_sha": "9360fa058239be76eaa65278a140af57088f84d0",
+   "size_bytes": 1347017,
+   "has_annotated_question": true
+  },
+  {
+   "filename": "LOCKHEEDMARTIN_2022_10K.pdf",
+   "url": "https://raw.githubusercontent.com/patronus-ai/financebench/cc39aeb4afdf33909ee1412188bf89035950c2eb/pdfs/LOCKHEEDMARTIN_2022_10K.pdf",
+   "git_blob_sha": "4f9c32b55353726417b1021c919012020fcb102b",
+   "size_bytes": 1398312,
+   "has_annotated_question": true
+  },
+  {
+   "filename": "MGMRESORTS_2018_10K.pdf",
+   "url": "https://raw.githubusercontent.com/patronus-ai/financebench/cc39aeb4afdf33909ee1412188bf89035950c2eb/pdfs/MGMRESORTS_2018_10K.pdf",
+   "git_blob_sha": "80764cd60ba86b4f343dd29d3fbabc38c1570138",
+   "size_bytes": 1421540,
+   "has_annotated_question": true
+  },
+  {
+   "filename": "MGMRESORTS_2020_10K.pdf",
+   "url": "https://raw.githubusercontent.com/patronus-ai/financebench/cc39aeb4afdf33909ee1412188bf89035950c2eb/pdfs/MGMRESORTS_2020_10K.pdf",
+   "git_blob_sha": "efd195f187164ad95b4251e15f67985adf1f78d9",
+   "size_bytes": 1383002,
+   "has_annotated_question": true
+  },
+  {
+   "filename": "MGMRESORTS_2022Q4_EARNINGS.pdf",
+   "url": "https://raw.githubusercontent.com/patronus-ai/financebench/cc39aeb4afdf33909ee1412188bf89035950c2eb/pdfs/MGMRESORTS_2022Q4_EARNINGS.pdf",
+   "git_blob_sha": "8fee8e110352e31f9e9a3c04d5a26d1a7926a361",
+   "size_bytes": 737922,
+   "has_annotated_question": true
+  },
+  {
+   "filename": "MGMRESORTS_2022_10K.pdf",
+   "url": "https://raw.githubusercontent.com/patronus-ai/financebench/cc39aeb4afdf33909ee1412188bf89035950c2eb/pdfs/MGMRESORTS_2022_10K.pdf",
+   "git_blob_sha": "87bc94d8dbfa31ca1bc93ff138b448823845d4ca",
+   "size_bytes": 1755866,
+   "has_annotated_question": true
+  },
+  {
+   "filename": "MGMRESORTS_2023Q2_10Q.pdf",
+   "url": "https://raw.githubusercontent.com/patronus-ai/financebench/cc39aeb4afdf33909ee1412188bf89035950c2eb/pdfs/MGMRESORTS_2023Q2_10Q.pdf",
+   "git_blob_sha": "4c1d85b158083977504d11fb8a39612b4d424c89",
+   "size_bytes": 661891,
+   "has_annotated_question": true
+  },
+  {
+   "filename": "MICROSOFT_2016_10K.pdf",
+   "url": "https://raw.githubusercontent.com/patronus-ai/financebench/cc39aeb4afdf33909ee1412188bf89035950c2eb/pdfs/MICROSOFT_2016_10K.pdf",
+   "git_blob_sha": "9518394bd80b8e55ae50374045e7d6d2bd42bcce",
+   "size_bytes": 838415,
+   "has_annotated_question": true
+  },
+  {
+   "filename": "MICROSOFT_2023_10K.pdf",
+   "url": "https://raw.githubusercontent.com/patronus-ai/financebench/cc39aeb4afdf33909ee1412188bf89035950c2eb/pdfs/MICROSOFT_2023_10K.pdf",
+   "git_blob_sha": "6f854500dd98a858d01eb81e4be859548d06c91e",
+   "size_bytes": 726155,
+   "has_annotated_question": true
+  },
+  {
+   "filename": "NETFLIX_2015_10K.pdf",
+   "url": "https://raw.githubusercontent.com/patronus-ai/financebench/cc39aeb4afdf33909ee1412188bf89035950c2eb/pdfs/NETFLIX_2015_10K.pdf",
+   "git_blob_sha": "760e1d5c344c3fe31c14ac367a4a8789f239b5b0",
+   "size_bytes": 578489,
+   "has_annotated_question": true
+  },
+  {
+   "filename": "NETFLIX_2017_10K.pdf",
+   "url": "https://raw.githubusercontent.com/patronus-ai/financebench/cc39aeb4afdf33909ee1412188bf89035950c2eb/pdfs/NETFLIX_2017_10K.pdf",
+   "git_blob_sha": "8e5a584c32cd03d8ca615018fdbe14556e7eda63",
+   "size_bytes": 651011,
+   "has_annotated_question": true
+  },
+  {
+   "filename": "NIKE_2018_10K.pdf",
+   "url": "https://raw.githubusercontent.com/patronus-ai/financebench/cc39aeb4afdf33909ee1412188bf89035950c2eb/pdfs/NIKE_2018_10K.pdf",
+   "git_blob_sha": "273e6ebbedcb48346495f4bb50ac887991a5c858",
+   "size_bytes": 962221,
+   "has_annotated_question": true
+  },
+  {
+   "filename": "NIKE_2019_10K.pdf",
+   "url": "https://raw.githubusercontent.com/patronus-ai/financebench/cc39aeb4afdf33909ee1412188bf89035950c2eb/pdfs/NIKE_2019_10K.pdf",
+   "git_blob_sha": "1171f82c2fe1db05766014612150a703225362a4",
+   "size_bytes": 909932,
+   "has_annotated_question": true
+  },
+  {
+   "filename": "NIKE_2021_10K.pdf",
+   "url": "https://raw.githubusercontent.com/patronus-ai/financebench/cc39aeb4afdf33909ee1412188bf89035950c2eb/pdfs/NIKE_2021_10K.pdf",
+   "git_blob_sha": "63761b6954735b2d057424e8a056c82bb58ffdb7",
+   "size_bytes": 877882,
+   "has_annotated_question": true
+  },
+  {
+   "filename": "NIKE_2023_10K.pdf",
+   "url": "https://raw.githubusercontent.com/patronus-ai/financebench/cc39aeb4afdf33909ee1412188bf89035950c2eb/pdfs/NIKE_2023_10K.pdf",
+   "git_blob_sha": "a37516e7887338a6640bba36dae93943ff08aa97",
+   "size_bytes": 3463188,
+   "has_annotated_question": true
+  },
+  {
+   "filename": "PAYPAL_2022_10K.pdf",
+   "url": "https://raw.githubusercontent.com/patronus-ai/financebench/cc39aeb4afdf33909ee1412188bf89035950c2eb/pdfs/PAYPAL_2022_10K.pdf",
+   "git_blob_sha": "386c8e47ac482e2ffb6dad3b5be1bb2af3ecfd2d",
+   "size_bytes": 4371232,
+   "has_annotated_question": true
+  },
+  {
+   "filename": "PEPSICO_2021_10K.pdf",
+   "url": "https://raw.githubusercontent.com/patronus-ai/financebench/cc39aeb4afdf33909ee1412188bf89035950c2eb/pdfs/PEPSICO_2021_10K.pdf",
+   "git_blob_sha": "e59a31ad864f615431502b54118979a3d59ade78",
+   "size_bytes": 2139398,
+   "has_annotated_question": true
+  },
+  {
+   "filename": "PEPSICO_2022_10K.pdf",
+   "url": "https://raw.githubusercontent.com/patronus-ai/financebench/cc39aeb4afdf33909ee1412188bf89035950c2eb/pdfs/PEPSICO_2022_10K.pdf",
+   "git_blob_sha": "134ea1bdc7845749d42407fe0eade31034e117c6",
+   "size_bytes": 2993516,
+   "has_annotated_question": true
+  },
+  {
+   "filename": "PEPSICO_2023Q1_EARNINGS.pdf",
+   "url": "https://raw.githubusercontent.com/patronus-ai/financebench/cc39aeb4afdf33909ee1412188bf89035950c2eb/pdfs/PEPSICO_2023Q1_EARNINGS.pdf",
+   "git_blob_sha": "3d804f262df68fc7fdc08ea53ff020fd828256ba",
+   "size_bytes": 987394,
+   "has_annotated_question": true
+  },
+  {
+   "filename": "PEPSICO_2023_8K_dated-2023-05-05.pdf",
+   "url": "https://raw.githubusercontent.com/patronus-ai/financebench/cc39aeb4afdf33909ee1412188bf89035950c2eb/pdfs/PEPSICO_2023_8K_dated-2023-05-05.pdf",
+   "git_blob_sha": "62aa4249b7ac0f2f12a7028ff7c74511ea7d1e71",
+   "size_bytes": 102321,
+   "has_annotated_question": true
+  },
+  {
+   "filename": "PEPSICO_2023_8K_dated-2023-05-30.pdf",
+   "url": "https://raw.githubusercontent.com/patronus-ai/financebench/cc39aeb4afdf33909ee1412188bf89035950c2eb/pdfs/PEPSICO_2023_8K_dated-2023-05-30.pdf",
+   "git_blob_sha": "f052f1a5162fdb989d095e68d338a3c053a1e5db",
+   "size_bytes": 1460889,
+   "has_annotated_question": true
+  },
+  {
+   "filename": "PFIZER_2021_10K.pdf",
+   "url": "https://raw.githubusercontent.com/patronus-ai/financebench/cc39aeb4afdf33909ee1412188bf89035950c2eb/pdfs/PFIZER_2021_10K.pdf",
+   "git_blob_sha": "48068532737cfa8ea27f898c1572b8901b7ccf1d",
+   "size_bytes": 1171782,
+   "has_annotated_question": true
+  },
+  {
+   "filename": "Pfizer_2023Q2_10Q.pdf",
+   "url": "https://raw.githubusercontent.com/patronus-ai/financebench/cc39aeb4afdf33909ee1412188bf89035950c2eb/pdfs/Pfizer_2023Q2_10Q.pdf",
+   "git_blob_sha": "3b81e029708bab90de3e511dbc1bb029e744aee3",
+   "size_bytes": 743533,
+   "has_annotated_question": true
+  },
+  {
+   "filename": "ULTABEAUTY_2023Q4_EARNINGS.pdf",
+   "url": "https://raw.githubusercontent.com/patronus-ai/financebench/cc39aeb4afdf33909ee1412188bf89035950c2eb/pdfs/ULTABEAUTY_2023Q4_EARNINGS.pdf",
+   "git_blob_sha": "d88813e10c0992f31c683a1f6a73ba37632f45d7",
+   "size_bytes": 99758,
+   "has_annotated_question": true
+  },
+  {
+   "filename": "ULTABEAUTY_2023_10K.pdf",
+   "url": "https://raw.githubusercontent.com/patronus-ai/financebench/cc39aeb4afdf33909ee1412188bf89035950c2eb/pdfs/ULTABEAUTY_2023_10K.pdf",
+   "git_blob_sha": "da46ba0a72de42552a5c0f9ae0801f19e513d494",
+   "size_bytes": 4954215,
+   "has_annotated_question": true
+  },
+  {
+   "filename": "VERIZON_2021_10K.pdf",
+   "url": "https://raw.githubusercontent.com/patronus-ai/financebench/cc39aeb4afdf33909ee1412188bf89035950c2eb/pdfs/VERIZON_2021_10K.pdf",
+   "git_blob_sha": "b881c9eb795f024055ffdb16b3e7d43af59a50b3",
+   "size_bytes": 2098068,
+   "has_annotated_question": true
+  },
+  {
+   "filename": "VERIZON_2022_10K.pdf",
+   "url": "https://raw.githubusercontent.com/patronus-ai/financebench/cc39aeb4afdf33909ee1412188bf89035950c2eb/pdfs/VERIZON_2022_10K.pdf",
+   "git_blob_sha": "92473150ab26a2f8419989bcd2d825c760424f8c",
+   "size_bytes": 2315268,
+   "has_annotated_question": true
+  },
+  {
+   "filename": "WALMART_2018_10K.pdf",
+   "url": "https://raw.githubusercontent.com/patronus-ai/financebench/cc39aeb4afdf33909ee1412188bf89035950c2eb/pdfs/WALMART_2018_10K.pdf",
+   "git_blob_sha": "b2a5c9c96d60f8c1c689437a26f9b409ce3f8f17",
+   "size_bytes": 1599075,
+   "has_annotated_question": true
+  },
+  {
+   "filename": "WALMART_2019_10K.pdf",
+   "url": "https://raw.githubusercontent.com/patronus-ai/financebench/cc39aeb4afdf33909ee1412188bf89035950c2eb/pdfs/WALMART_2019_10K.pdf",
+   "git_blob_sha": "7da6857bbca8b38efba99ee22a3ee14630f6a839",
+   "size_bytes": 7211754,
+   "has_annotated_question": true
+  },
+  {
+   "filename": "WALMART_2020_10K.pdf",
+   "url": "https://raw.githubusercontent.com/patronus-ai/financebench/cc39aeb4afdf33909ee1412188bf89035950c2eb/pdfs/WALMART_2020_10K.pdf",
+   "git_blob_sha": "d72cdbf95f9163423470c284cdda3550daeba4df",
+   "size_bytes": 1132390,
+   "has_annotated_question": true
+  },
+  {
+   "filename": "3M_2015_10K.pdf",
+   "url": "https://raw.githubusercontent.com/patronus-ai/financebench/cc39aeb4afdf33909ee1412188bf89035950c2eb/pdfs/3M_2015_10K.pdf",
+   "git_blob_sha": "f06e48a5e4e3462bf322d51778f7672391817798",
+   "size_bytes": 1160173,
+   "has_annotated_question": false
+  },
+  {
+   "filename": "3M_2016_10K.pdf",
+   "url": "https://raw.githubusercontent.com/patronus-ai/financebench/cc39aeb4afdf33909ee1412188bf89035950c2eb/pdfs/3M_2016_10K.pdf",
+   "git_blob_sha": "43d32cc8b446e14374d9e339d04a6ba055a983a5",
+   "size_bytes": 1449990,
+   "has_annotated_question": false
+  },
+  {
+   "filename": "3M_2017_10K.pdf",
+   "url": "https://raw.githubusercontent.com/patronus-ai/financebench/cc39aeb4afdf33909ee1412188bf89035950c2eb/pdfs/3M_2017_10K.pdf",
+   "git_blob_sha": "470ca203a6c5fd6326eae22fbc99a7b6f2410e7a",
+   "size_bytes": 1375146,
+   "has_annotated_question": false
+  },
+  {
+   "filename": "3M_2019_10K.pdf",
+   "url": "https://raw.githubusercontent.com/patronus-ai/financebench/cc39aeb4afdf33909ee1412188bf89035950c2eb/pdfs/3M_2019_10K.pdf",
+   "git_blob_sha": "0b409072b6a93c3f8b6cc1a68e3d7f0d099073f3",
+   "size_bytes": 1231580,
+   "has_annotated_question": false
+  },
+  {
+   "filename": "3M_2020_10K.pdf",
+   "url": "https://raw.githubusercontent.com/patronus-ai/financebench/cc39aeb4afdf33909ee1412188bf89035950c2eb/pdfs/3M_2020_10K.pdf",
+   "git_blob_sha": "97f4a5ee9bae4bd4dd9db4693f08380a2469334c",
+   "size_bytes": 1114965,
+   "has_annotated_question": false
+  },
+  {
+   "filename": "3M_2021_10K.pdf",
+   "url": "https://raw.githubusercontent.com/patronus-ai/financebench/cc39aeb4afdf33909ee1412188bf89035950c2eb/pdfs/3M_2021_10K.pdf",
+   "git_blob_sha": "e28d3f9b42e1f4e270136ec330aa196262f9cdfa",
+   "size_bytes": 1144721,
+   "has_annotated_question": false
+  },
+  {
+   "filename": "ACTIVISIONBLIZZARD_2015_10K.pdf",
+   "url": "https://raw.githubusercontent.com/patronus-ai/financebench/cc39aeb4afdf33909ee1412188bf89035950c2eb/pdfs/ACTIVISIONBLIZZARD_2015_10K.pdf",
+   "git_blob_sha": "f6d47be9673e4a84be32cd2562050e59de68cd70",
+   "size_bytes": 864243,
+   "has_annotated_question": false
+  },
+  {
+   "filename": "ACTIVISIONBLIZZARD_2016_10K.pdf",
+   "url": "https://raw.githubusercontent.com/patronus-ai/financebench/cc39aeb4afdf33909ee1412188bf89035950c2eb/pdfs/ACTIVISIONBLIZZARD_2016_10K.pdf",
+   "git_blob_sha": "d1a8c1c7715c5c88c486681e8e1debd087f17f38",
+   "size_bytes": 1328536,
+   "has_annotated_question": false
+  },
+  {
+   "filename": "ACTIVISIONBLIZZARD_2017_10K.pdf",
+   "url": "https://raw.githubusercontent.com/patronus-ai/financebench/cc39aeb4afdf33909ee1412188bf89035950c2eb/pdfs/ACTIVISIONBLIZZARD_2017_10K.pdf",
+   "git_blob_sha": "78c7cd8ec84a1304480849a0c383db19e2d3467c",
+   "size_bytes": 808406,
+   "has_annotated_question": false
+  },
+  {
+   "filename": "ACTIVISIONBLIZZARD_2018_10K.pdf",
+   "url": "https://raw.githubusercontent.com/patronus-ai/financebench/cc39aeb4afdf33909ee1412188bf89035950c2eb/pdfs/ACTIVISIONBLIZZARD_2018_10K.pdf",
+   "git_blob_sha": "b3b5f9a27eeadc5971d74a333eddb92391bd15cb",
+   "size_bytes": 1438940,
+   "has_annotated_question": false
+  },
+  {
+   "filename": "ACTIVISIONBLIZZARD_2020_10K.pdf",
+   "url": "https://raw.githubusercontent.com/patronus-ai/financebench/cc39aeb4afdf33909ee1412188bf89035950c2eb/pdfs/ACTIVISIONBLIZZARD_2020_10K.pdf",
+   "git_blob_sha": "4e6194c0a84aed0e0d42ddcaabd98bf719d149b8",
+   "size_bytes": 1153457,
+   "has_annotated_question": false
+  },
+  {
+   "filename": "ACTIVISIONBLIZZARD_2021_10K.pdf",
+   "url": "https://raw.githubusercontent.com/patronus-ai/financebench/cc39aeb4afdf33909ee1412188bf89035950c2eb/pdfs/ACTIVISIONBLIZZARD_2021_10K.pdf",
+   "git_blob_sha": "f159c67a1a33264c7c8a2f9e7cd38833bd2ce710",
+   "size_bytes": 1912840,
+   "has_annotated_question": false
+  },
+  {
+   "filename": "ACTIVISIONBLIZZARD_2022_10K.pdf",
+   "url": "https://raw.githubusercontent.com/patronus-ai/financebench/cc39aeb4afdf33909ee1412188bf89035950c2eb/pdfs/ACTIVISIONBLIZZARD_2022_10K.pdf",
+   "git_blob_sha": "cb09a13f29bd6516fa202a090d9cb27bb32c2d63",
+   "size_bytes": 2299060,
+   "has_annotated_question": false
+  },
+  {
+   "filename": "ACTIVSIONBLIZZARD_2023Q2_10Q.pdf",
+   "url": "https://raw.githubusercontent.com/patronus-ai/financebench/cc39aeb4afdf33909ee1412188bf89035950c2eb/pdfs/ACTIVSIONBLIZZARD_2023Q2_10Q.pdf",
+   "git_blob_sha": "d42bf7d16bbf11c0d060fcfb5702d5bd33644887",
+   "size_bytes": 919791,
+   "has_annotated_question": false
+  },
+  {
+   "filename": "ADOBE_2018_10K.pdf",
+   "url": "https://raw.githubusercontent.com/patronus-ai/financebench/cc39aeb4afdf33909ee1412188bf89035950c2eb/pdfs/ADOBE_2018_10K.pdf",
+   "git_blob_sha": "32a3691f650cac88652f00ab7522c8d1efce9f2b",
+   "size_bytes": 4226085,
+   "has_annotated_question": false
+  }
+ ]
+}

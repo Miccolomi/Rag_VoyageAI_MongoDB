@@ -76,3 +76,12 @@ def test_elimina_documento_solo_da_una_modalita(monkeypatch):
     assert {m["mode"]: m["chunks"] for m in docs[0]["by_mode"]} == {"auto": 1, "manual": 2}
     assert web_services.delete_document("d1", "manual") == {"chunks_deleted": 2}
     assert coll.count_documents({"document_id": "d1", "embedding_mode": "auto"}) == 1
+
+
+def test_anteprima_fusione_valida_i_parametri():
+    from starlette.testclient import TestClient
+    import server
+    client = TestClient(server.app)
+    assert client.post("/api/query/fusion", json={"question": ""}).status_code == 400
+    response = client.post("/api/query/fusion", json={"question": "capex?", "mode": "auto", "semantic": 150})
+    assert response.status_code == 400 and "0 a 100" in response.json()["error"]

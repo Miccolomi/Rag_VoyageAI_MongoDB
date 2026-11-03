@@ -175,6 +175,22 @@ PROJECT_COMMON: dict[str, Any] = {
 }
 
 
+def semantic_weights(semantic: int | float | None) -> dict[str, float] | None:
+    """Cursore della pagina Query (0 = solo parole chiave, 100 = solo significato) → pesi di $rankFusion.
+
+    50 o nessun valore = pesi predefiniti. La somma resta 2, come con i pesi uguali: cambia solo
+    l'equilibrio. Con più modalità il peso "vector" vale per ogni ramo semantico.
+    """
+    if semantic is None:
+        return None
+    semantic = float(semantic)
+    if not 0 <= semantic <= 100:
+        raise ValueError("Il peso della ricerca semantica va da 0 a 100")
+    if semantic == 50:
+        return None
+    return {"text": round((100 - semantic) / 50, 3), "vector": round(semantic / 50, 3)}
+
+
 def fusion_weights(branch_names: list[str], weights: dict[str, float] | None = None) -> dict[str, float]:
     """Pesi di $rankFusion per ramo.
 
@@ -362,6 +378,7 @@ def build_native_rerank_pipeline(
     query_vectors: dict[str, list[float]] | None = None,
     instructions: str | None = None,
     include_candidates: bool = False,
+    weights: dict[str, float] | None = None,
 ) -> list[dict[str, Any]]:
     """Ricerca ibrida seguita da $rerank, fuori dai rami di $rankFusion.
 
@@ -374,6 +391,7 @@ def build_native_rerank_pipeline(
         query,
         filters=filters,
         top_k=k,
+        weights=weights,
         embed_mode=embed_mode,
         retrieval_mode="hybrid",
         fuzzy=fuzzy,

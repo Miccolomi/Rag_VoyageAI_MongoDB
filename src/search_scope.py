@@ -138,9 +138,13 @@ def prepare_vectors(query: str, modes: list[str]) -> dict[str, list[float]]:
         return {mode: future.result() for mode, future in futures.items()}
 
 
-def weights_caption(modes: list[str]) -> str:
+def weights_caption(modes: list[str], custom: dict[str, float] | None = None) -> str:
     """Descrive i pesi effettivi della fusione per la UI."""
-    weights = fusion_weights([f"vector_{mode}" for mode in modes] + ["text"])
+    weights = fusion_weights([f"vector_{mode}" for mode in modes] + ["text"], custom)
+    if custom:
+        it = lambda x: f"{x:g}".replace(".", ",")
+        return (f"Pesi scelti per questa domanda: ricerca testuale {it(weights['text'])}, "
+                f"ricerca semantica {it(custom['vector'])}" + (" per ogni modalità." if len(modes) > 1 else "."))
     if weights["text"] == 1 or len(modes) <= 1:
         return "Ogni ramo della fusione ha peso 1."
     return (f"Ogni ramo semantico ha peso 1; il ramo testuale ha peso {weights['text']:g}, "

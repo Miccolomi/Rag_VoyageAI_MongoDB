@@ -115,9 +115,18 @@ function modePicker() {
     const counts = i.counts || {};
     const total = Object.values(counts).reduce((a, b) => a + b, 0);
     const n = (m) => (m === "all" ? total : counts[m] || 0);
+    // Modalità salvata senza documenti (per esempio scelta in Admin per guardarne la tabella):
+    // si cerca dove ci sono documenti, senza cambiare la predefinita salvata.
+    let fallback = "";
+    if (total && !n(i.active_mode)) {
+      fallback = i.active_mode;
+      i.active_mode = n("auto") ? "auto" : SEARCH_MODES.find((m) => m !== "all" && n(m));
+      renderMeta();
+    }
     $(".seg", el).innerHTML = SEARCH_MODES.map((m) => `<button type="button" data-m="${m}" class="${m === i.active_mode ? "on" : ""}" ${n(m) ? "" : "disabled"}
       title="${n(m) ? `${n(m).toLocaleString("it-IT")} passaggi` : "nessun documento caricato in questa modalità"}">${modeName(m)} <small>${n(m).toLocaleString("it-IT")}</small></button>`).join("");
-    $("#mp-note", el).textContent = i.active_mode === "all" ? "tutte le modalità con documenti, risultati fusi" : "";
+    $("#mp-note", el).textContent = fallback ? `${modeName(fallback)} non ha documenti: cerco in ${modeName(i.active_mode)}`
+      : i.active_mode === "all" ? "tutte le modalità con documenti, risultati fusi" : "";
     $$(".seg button", el).forEach((b) => b.onclick = async () => {
       if (state.busy || b.dataset.m === state.info.active_mode) return;
       state.info.active_mode = b.dataset.m;
@@ -728,14 +737,17 @@ pages.query = (main) => {
       <div><label>Passaggi forniti al modello (Top-N)</label><input type="number" id="q-topn" value="8" min="1" max="20"></div>
       <div><label>Soglia minima di pertinenza</label><input type="number" id="q-thr" value="0.15" step="0.05" min="0" max="1"></div>
       <div><label><input type="checkbox" id="q-fuzzy"> Ricerca testuale con tolleranza agli errori</label></div>
+      <div style="grid-column:1/-1"><label>Equilibrio della fusione</label>${fusionSlider("q-sem", 50)}</div>
       <div style="grid-column:1/-1"><label>Istruzioni aggiuntive per il reranking</label><input type="text" id="q-instr" placeholder="Es. privilegia le tabelle con i totali"></div>
       <div class="small muted settings-help" style="grid-column:1/-1">
         <p>La ricerca si regola senza modificare la pipeline applicativa.</p>
         <p><b>Top-K</b> determina quanti candidati recuperare da ciascun motore. <b>Top-N</b> stabilisce quanti passaggi, dopo fusione e reranking, vengono forniti al modello per generare la risposta.</p>
         <p>La <b>soglia minima di pertinenza</b> usa il punteggio del reranker (da 0 a 1) del passaggio meglio classificato: se è inferiore al valore impostato, l’applicazione non interroga il modello. È una decisione sul punteggio, non una verifica definitiva che la domanda sia fuori dal dominio dei documenti.</p>
+        <p>L’<b>equilibrio della fusione</b> regola i pesi di <code>$rankFusion</code>: verso «parole chiave» contano di più i risultati della ricerca testuale, verso «significato» quelli della ricerca semantica. Al centro i due motori pesano uguale. Dopo una risposta puoi provare altri pesi in «Dentro la ricerca → Fusione dei motori», senza chiamare il modello.</p>
         <p>La <b>ricerca con tolleranza agli errori</b> (fuzzy) consente al motore testuale di accettare piccole variazioni ed errori ortografici. Le <b>istruzioni aggiuntive</b> orientano il reranking verso specifiche caratteristiche dei contenuti.</p>
       </div>`,
   });
+  $("#q-sem", box).oninput = (e) => { $("#q-sem-v", box).textContent = fusionLabel(Number(e.target.value)); };
   main.append(box);
   main.append(h(`<div class="pipeline" id="pipe">
       <div class="pstep" data-s="embedding"><div class="k">1 · Preparazione della domanda</div><div class="v">Generazione della rappresentazione semantica</div><div class="ms"></div></div>
@@ -752,7 +764,8 @@ async function runQuery(main, question) {
   const steps = $$(".pstep", main); steps.forEach((s) => { s.className = "pstep"; $(".ms", s).textContent = ""; });
   const stop = elapsedTimer($("#elapsed", main));
   const body = { question, mode: state.info?.active_mode, top_k: Number($("#q-topk", main).value), top_n: Number($("#q-topn", main).value),
-    threshold: Number($("#q-thr", main).value), fuzzy: $("#q-fuzzy", main).checked, rerank_instructions: $("#q-instr", main).value };
+    threshold: Number($("#q-thr", main).value), fuzzy: $("#q-fuzzy", main).checked, rerank_instructions: $("#q-instr", main).value,
+    semantic: Number($("#q-sem", main).value) };
   let retrieval = null, result = null, failed = null;
   try {
     await stream("/api/query", body, (ev) => {
@@ -773,6 +786,57 @@ async function runQuery(main, question) {
     for (const [k, ms] of Object.entries(result.timings)) { const s = $(`.pstep[data-s="${k}"]`, main); if (s) { s.classList.add("done"); $(".ms", s).textContent = fmtMs(ms); } }
   }
   if (result) renderQueryResult(out, result, body);
+}
+
+// Cursore della fusione: 0 = solo parole chiave, 100 = solo significato (stessa formula del server).
+const fusionLabel = (v) => { const t = (100 - v) / 50, s = v / 50, f = (x) => x.toLocaleString("it-IT", { maximumFractionDigits: 1 });
+  return v === 50 ? "pesi uguali · testo 1 · semantica 1" : `testo ${f(t)} · semantica ${f(s)}`; };
+const fusionSlider = (id, value) => `<div class="wslider"><span class="small muted">parole chiave</span>
+  <input type="range" id="${id}" min="0" max="100" step="10" value="${value}"><span class="small muted">significato</span>
+  <b class="small" id="${id}-v">${fusionLabel(value)}</b></div>`;
+
+function fusionPlayground(r, body) {
+  const start = Number(r.semantic ?? 50);
+  const el = h(`<div class="fusion-play">
+      <p><b>Prova a cambiare i pesi della fusione</b></p>
+      <p class="small muted">Sposta il cursore: MongoDB riesegue la stessa ricerca con altri pesi in <code>$rankFusion</code> e il reranking, senza chiamare il modello. Vedi subito quali passaggi salgono, quali scendono e quali fonti riceverebbe il modello. La risposta sopra resta quella scritta con i pesi originali (${esc(fusionLabel(start))}).</p>
+      ${fusionSlider("fp", start)}
+      <div id="fp-out" class="small muted">Sposta il cursore per vedere come cambia la classifica.</div></div>`);
+  const fusedPos = Object.fromEntries((r.fused || []).map((p, i) => [p.key, i + 1]));
+  const sentBefore = new Set(r.sent || []);
+  const name = (p) => `${shortFile(p.filename)} ${pageLabel(p.page)}`;
+  let timer = null, seq = 0;
+  const slider = $("#fp", el), out = $("#fp-out", el);
+  slider.oninput = () => {
+    const v = Number(slider.value);
+    $("#fp-v", el).textContent = fusionLabel(v);
+    clearTimeout(timer);
+    timer = setTimeout(async () => {
+      const mine = ++seq;
+      out.className = "small muted"; out.textContent = "MongoDB sta ricalcolando la classifica…";
+      try {
+        const res = await sendJSON("/api/query/fusion", { question: r.question, mode: body.mode, semantic: v, top_k: body.top_k,
+          top_n: body.top_n, fuzzy: body.fuzzy, rerank_instructions: body.rerank_instructions });
+        if (mine !== seq) return;  // è arrivata una richiesta più recente
+        const sentNow = new Set(res.sent.map((p) => p.key));
+        const same = [...sentNow].filter((k) => sentBefore.has(k)).length;
+        const entered = res.sent.filter((p) => !sentBefore.has(p.key));
+        const left = (r.reranked_all || []).filter((p) => sentBefore.has(p.key) && !sentNow.has(p.key));
+        const move = (p, i) => { const was = fusedPos[p.key]; if (!was) return '<span class="mv new">nuovo</span>';
+          const d = was - (i + 1); return d > 0 ? `<span class="mv up">↑${d}</span>` : d < 0 ? `<span class="mv down">↓${-d}</span>` : '<span class="mv">=</span>'; };
+        out.className = "";
+        out.innerHTML = `<p class="small how-values">${esc(res.weights.replace(/\.$/, ""))} · ${res.duration_ms.toLocaleString("it-IT")} ms in MongoDB ·
+            fonti per il modello uguali a quelle della risposta: <b>${same}/${res.sent.length}</b>${entered.length ? ` · entrano: ${entered.map((p) => esc(name(p))).join(", ")}` : ""}${left.length ? ` · escono: ${left.map((p) => esc(name(p))).join(", ")}` : ""}</p>
+          <div class="compare-cols">
+            <div><h4>Classifica di $rankFusion · prime 10</h4><div class="rank-list">${res.fused.map((p, i) => `<div><b>#${i + 1}</b> ${move(p, i)} ${esc(name(p))} <span class="muted">${esc(p.snippet.slice(0, 60))}</span></div>`).join("")}</div>
+              <p class="small muted">Freccia: posizione rispetto alla classifica originale.</p></div>
+            <div><h4>Al modello dopo $rerank · ${res.sent.length} passaggi</h4><div class="rank-list">${res.sent.map((p, i) => `<div><b>#${i + 1}</b> ${sentBefore.has(p.key) ? '<span class="mv">=</span>' : '<span class="mv new">nuovo</span>'} ${esc(name(p))} <span class="muted">${p.rerank_score != null ? Number(p.rerank_score).toFixed(3) : ""}</span></div>`).join("")}</div>
+              <p class="small muted">«nuovo»: non era tra le fonti date al modello con i pesi originali.</p></div>
+          </div>`;
+      } catch (e) { if (mine === seq) { out.className = ""; out.replaceChildren(errorBox(e.message)); } }
+    }, 450);
+  };
+  return el;
 }
 
 function renderQueryResult(out, r, body) {
@@ -824,6 +888,7 @@ function renderQueryResult(out, r, body) {
         <p class="small muted">A sinistra, MongoDB Search (<code>$search</code>) individua i passaggi rilevanti attraverso le parole e i termini presenti nei documenti, con BM25. A destra, MongoDB Vector Search (<code>$vectorSearch</code>) recupera i contenuti semanticamente vicini alla domanda, anche quando usano parole diverse.</p>
         <p class="small muted">Al centro, <code>$rankFusion</code> combina le due classifiche con la Reciprocal Rank Fusion (RRF): ogni risultato riceve un punteggio basato sulla sua posizione nei rispettivi motori. Il risultato è una classifica unica che sfrutta la precisione della ricerca testuale e la comprensione semantica di quella vettoriale; i passaggi duplicati vengono consolidati prima del reranking. ${esc(r.weights || "")}</p><div></div></div>`);
       lanes(wrap.lastElementChild, { columns: cols, target: { title: "Risultati combinati", sub: "$rankFusion (RRF)" }, items });
+      wrap.append(fusionPlayground(r, body));
       return wrap;
     },
     rerank: () => {
@@ -982,7 +1047,7 @@ pages.admin = async (main) => {
   main.append(h(`<div class="grid4">
       <div class="card"><div class="muted small">Connessione a MongoDB Atlas</div><div class="stat">${i.atlas === "ok" ? "✓ Connesso" : "✗ Non connesso"}</div><div class="small muted">${esc(i.database)}.${esc(i.collection)}</div></div>
       <div class="card"><div class="muted small">Passaggi disponibili per la ricerca</div><div class="stat">${total.toLocaleString("it-IT")}</div><div class="small muted">Totale delle modalità</div></div>
-      <div class="card"><div class="muted small">Modalità di ricerca predefinita</div><div class="stat">${esc(modeName(i.active_mode))}</div><div class="small muted">${esc(embedFor(i.active_mode))}</div></div>
+      <div class="card"><div class="muted small">Ricerca: ultima modalità scelta</div><div class="stat">${esc(modeName(i.active_mode))}</div><div class="small muted">si cambia in Query e Ricerca agentica</div></div>
       <div class="card"><div class="muted small">Modelli AI</div><div class="stat" style="font-size:17px">${i.llm_ready ? "✓ " : "✗ "}${esc(i.llm)}</div><div class="small muted">Reranker: ${esc(i.rerank)}</div></div>
     </div>`));
   // Modalità attiva
@@ -992,15 +1057,21 @@ pages.admin = async (main) => {
     context: "Gli embedding considerano anche il contesto del documento, migliorando la rappresentazione dei singoli passaggi.",
     multimodal: "Testo e contenuto visivo di pagine e slide vengono rappresentati con embedding multimodali.",
   };
-  const modeCard = h(`<div class="card" style="margin-top:16px"><h3>Modalità di indicizzazione e ricerca</h3>
-      <p class="small muted">La demo supporta quattro modalità di generazione degli embedding, ciascuna pensata per esigenze documentali diverse. Tutte usano MongoDB come database e motore di ricerca. Query e Ricerca agentica scelgono in quale modalità cercare, anche in tutte insieme; quella selezionata qui è la predefinita all’apertura. Il caricamento non la cambia. Puoi usare modalità diverse per confrontare qualità del recupero, gestione degli embedding e tipologie di contenuto.</p>
+  const modeCard = h(`<div class="card" style="margin-top:16px"><h3>Modalità di indicizzazione</h3>
+      <p class="small muted">La demo supporta quattro modalità di generazione degli embedding, ciascuna pensata per esigenze documentali diverse. Tutte usano MongoDB come database e motore di ricerca. Seleziona una modalità per vedere qui sotto i suoi documenti: la scelta vale solo per questa pagina e non cambia dove cercano Query e Ricerca agentica, che hanno il loro selettore.</p>
       <div class="grid4" id="modes"></div>
       <p class="small muted" style="margin:10px 0 0">Ogni modalità usa un indice vettoriale dedicato. Un indice può essere pronto anche senza documenti: per cercare in una modalità bisogna aver caricato contenuti con quella configurazione.</p></div>`);
-  MODE_TEXT.all = "Cerca in tutte le modalità che hanno documenti e fonde i risultati in un’unica classifica.";
+  MODE_TEXT.all = "Tutti i documenti, di qualunque modalità.";
+  // Filtro della tabella dei documenti: solo di questa pagina, mai salvato né usato dalle ricerche.
+  let sel = "all";
   const allCount = Object.values(i.counts || {}).reduce((a, b) => a + b, 0);
   $("#modes", modeCard).style.gridTemplateColumns = "repeat(auto-fit, minmax(160px, 1fr))";
-  $("#modes", modeCard).innerHTML = [...Object.keys(i.modes || {}), "all"].map((m) => `<div class="mode-card ${m === i.active_mode ? "selected" : ""}" data-m="${m}"><b>${modeName(m)}</b><div class="small">${esc(MODE_TEXT[m] || i.modes[m])}</div><div class="count">${(m === "all" ? allCount : (i.counts || {})[m] || 0).toLocaleString("it-IT")} passaggi</div></div>`).join("");
-  $$(".mode-card", modeCard).forEach((c) => c.onclick = async () => { await sendJSON("/api/admin/mode", { mode: c.dataset.m }); await loadInfo(); route(); });
+  $("#modes", modeCard).innerHTML = [...Object.keys(i.modes || {}), "all"].map((m) => `<div class="mode-card ${m === sel ? "selected" : ""}" data-m="${m}"><b>${modeName(m)}</b><div class="small">${esc(MODE_TEXT[m] || i.modes[m])}</div><div class="count">${(m === "all" ? allCount : (i.counts || {})[m] || 0).toLocaleString("it-IT")} passaggi</div></div>`).join("");
+  $$(".mode-card", modeCard).forEach((c) => c.onclick = () => {
+    sel = c.dataset.m;
+    $$(".mode-card", modeCard).forEach((x) => x.classList.toggle("selected", x === c));
+    loadDocs();
+  });
   main.append(modeCard);
   // Indici e setup
   const counts = i.counts || {};
@@ -1021,7 +1092,7 @@ pages.admin = async (main) => {
   main.append(idx);
   // Documenti
   const docs = h(`<div class="card"><div class="row"><h3 style="margin:0">Documenti caricati</h3><span class="spacer"></span><button class="danger" id="reset-open">Azzera i dati della demo…</button></div>
-      <p class="small muted">I documenti della modalità selezionata qui sopra, con i loro metadati e passaggi indicizzati; con «tutte» li vedi tutti. Ogni documento resta collegato al file originale: dalla risposta si risale alla fonte usata. La tabella mostra la modalità di embedding, le pagine elaborate, i passaggi prodotti e la data di caricamento.</p>
+      <p class="small muted">I documenti della modalità di indicizzazione selezionata qui sopra, con i loro metadati e passaggi indicizzati; con «tutte» li vedi tutti. Ogni documento resta collegato al file originale: dalla risposta si risale alla fonte usata. La tabella mostra la modalità di embedding, le pagine elaborate, i passaggi prodotti e la data di caricamento.</p>
       <div id="reset" class="reset-panel" hidden>
         <b>Attenzione: operazione irreversibile.</b>
         <p class="small">L’azzeramento elimina tutti i documenti caricati, i loro passaggi indicizzati e i file originali conservati nello storage configurato (in questa demo GridFS). Al termine l’applicazione prepara di nuovo le strutture necessarie alla ricerca; le impostazioni della demo restano.</p>
@@ -1035,7 +1106,6 @@ pages.admin = async (main) => {
       <div id="doclist" class="muted">Caricamento…</div></div>`);
   main.append(docs);
   // La tabella segue la modalità selezionata sopra: solo i documenti (e i passaggi) di quella modalità.
-  const sel = i.active_mode;
   const loadDocs = async () => {
     const all = await getJSON("/api/admin/documents");
     const list = sel === "all" ? all : all.map((d) => {

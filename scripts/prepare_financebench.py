@@ -1,4 +1,14 @@
-"""Download 100 public FinanceBench PDFs locally; never connect to Atlas or Voyage."""
+"""Scarica in locale i 100 PDF FinanceBench della demo. Non si collega ad Atlas né a Voyage.
+
+Uso, dalla cartella del progetto:
+    .venv/bin/python scripts/prepare_financebench.py
+
+I file finiscono in data/financebench_100/pdfs: è la cartella da caricare dalla pagina Upload.
+L'elenco dei 100 file è fissato in scripts/financebench_100.json (stessa versione del repository
+di origine per tutti); ogni PDF scaricato viene confrontato con l'originale. Se il download si
+interrompe, rilancia lo stesso comando: riprende dai file mancanti.
+Con --new-selection lo script rifà la scelta dei 100 file dall'ultima versione del repository.
+"""
 from __future__ import annotations
 
 import argparse
@@ -13,6 +23,7 @@ from urllib.request import Request, urlopen
 
 REPOSITORY = "patronus-ai/financebench"
 DEFAULT_OUTPUT = Path(__file__).resolve().parents[1] / "data" / "financebench_100"
+PINNED = Path(__file__).resolve().with_name("financebench_100.json")
 
 
 def fetch(url: str) -> bytes:
@@ -30,13 +41,22 @@ def fetch(url: str) -> bytes:
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--output", type=Path, default=DEFAULT_OUTPUT)
+    parser.add_argument("--new-selection", action="store_true",
+                        help="rifà la scelta dei 100 PDF dall'ultima versione del repository di origine")
     args = parser.parse_args()
     root = args.output.resolve()
     pdf_dir = root / "pdfs"
     pdf_dir.mkdir(parents=True, exist_ok=True)
     manifest_path = root / "manifest.json"
-    if manifest_path.exists():
+    if manifest_path.exists() and not args.new_selection:
         manifest = json.loads(manifest_path.read_text())
+    elif PINNED.exists() and not args.new_selection:
+        pinned = json.loads(PINNED.read_text())
+        manifest = {"source": pinned["source"], "revision": pinned["revision"],
+                    "prepared_at": datetime.now(timezone.utc).isoformat(), "documents": pinned["documents"]}
+        # Domande di riferimento di FinanceBench, stessa versione: restano FUORI dalla cartella da caricare.
+        (root / "questions_reference.jsonl").write_bytes(fetch(pinned["questions_url"]))
+        manifest_path.write_text(json.dumps(manifest, ensure_ascii=False, indent=2))
     else:
         tree = json.loads(fetch(f"https://api.github.com/repos/{REPOSITORY}/git/trees/main?recursive=1"))
         if tree.get("truncated"):

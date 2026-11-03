@@ -29,3 +29,8 @@ def test_vettori_della_domanda_calcolati_in_parallelo(monkeypatch):
 
 def test_didascalia_pesi():
     assert "peso 3" in search_scope.weights_caption(["auto", "manual", "context"])
+
+
+def test_didascalia_con_pesi_scelti():
+    text = search_scope.weights_caption(["auto"], {"text": 1.6, "vector": 0.4})
+    assert "testuale 1,6" in text and "semantica 0,4" in text

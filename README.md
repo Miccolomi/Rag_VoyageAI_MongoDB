@@ -1,338 +1,379 @@
-# RAG with MongoDB Atlas and Voyage AI
+# RAG Demo · MongoDB + Voyage AI
 
-[Guida completa in italiano](README.it.md)
+*[Versione italiana](README.it.md)*
 
-**Documented state: October 20, 2026.** Current decisions and evidence: [DEMO_PLAN.md](DEMO_PLAN.md).
+A demo that answers questions about 100 public financial documents from 34 US companies (mostly
+10-K annual reports, plus some quarterly reports and earnings releases), **citing the pages** each
+piece of information comes from.
 
-A demonstration PoC for ingesting documents, comparing indexing strategies,
-retrieving relevant passages and generating answers with source references.
-It supports PDF and Office documents, including visual pages/slides, plus text
-formats supported by the parser.
+It shows two approaches:
 
-This guide describes repository behavior, not a completed deployment check.
-The Italian guide also records the How it Works page structure and open issues.
+- **Query**: classic RAG. One search, one answer. You can see step by step how MongoDB picks the
+  passages: keyword search, semantic search, fusion of the two rankings and a final reranking with a
+  Voyage AI model.
+- **Agentic search**: an agent that searches again, in a targeted way, when the first search is not
+  enough. It splits multi-part questions, asks which year you mean when values change from year to
+  year, and states what it could not find.
 
-The agreed demo objective and implementation roadmap are recorded in
-[DEMO_PLAN.md](DEMO_PLAN.md) (Italian): 100 similar documents, folder upload,
-and 5 questions with verified answers and sources, including at least 2 trick
-questions. Evaluation uses a manual reference sheet. Strategy comparisons remain
-verbal; no automated benchmark dashboard or new multimodal work is in scope.
-The 100-PDF corpus is prepared locally and folder upload is implemented; the
-five-question reference sheet is available in [DEMO_QUERIES.md](DEMO_QUERIES.md),
-with answers verified against the original PDF tables. The user reported successful answers before question 5; question 5 failed and
-was inspected directly. See the reference sheet for evidence and limitations.
-Do not ingest the reference sheet. No bulk Atlas ingestion
-or end-to-end upload test has been run as part of this change.
+Everything happens inside **MongoDB Atlas**: documents, text search, vector search, fusion,
+reranking, conversation memory and original files. That is the point of the demo: MongoDB is the
+platform, not just the database.
 
-To prepare the files again, run `python scripts/prepare_financebench.py`. In
-Upload choose text ingestion, GridFS, then **Una cartella**, and select
-`data/financebench_100/pdfs`. Keep duplicate handling on skip and leave shared
-title/author/year overrides empty. Click **Avvia ingestion**. Each file is processed sequentially, with progress and a downloadable
-summary of successes, skips and errors. Keep the page open: this is not a
-background job. Reference annotations and the manifest stay outside `pdfs`
-and must not be ingested. Atlas indexing is asynchronous.
+> The application interface is in Italian. You can ask questions in English or Italian.
 
-## Architecture: ingestion and querying
+---
 
-**Ingestion:** extract text, tables and metadata; use OCR where needed; split
-content into chunks; render pages/slides for visual ingestion; generate
-embeddings in the app or delegate them to Atlas. Store chunks and metadata in
-the application collection and original files in GridFS. Atlas indexes update
-asynchronously.
+## Contents
 
-**Querying:** apply selected filters; retrieve through Atlas Search and Atlas
-Vector Search; combine rank positions with `$rankFusion`; rerank candidates
-through Atlas `$rerank` after `$rankFusion` in the same aggregation; pass selected
-text to the configured LLM. The app shows
-citations and provides access to originals. The prompt asks the LLM to use the
-retrieved passages; citations do not guarantee factual accuracy.
+1. [What you need](#1-what-you-need)
+2. [Installation](#2-installation)
+3. [Configuration: the .env file](#3-configuration-the-env-file)
+4. [First start](#4-first-start)
+5. [Prepare the database and indexes](#5-prepare-the-database-and-indexes)
+6. [Download and load the 100 documents](#6-download-and-load-the-100-documents)
+7. [Ask your first questions](#7-ask-your-first-questions)
+8. [The demo pages](#8-the-demo-pages)
+9. [Optional features](#9-optional-features)
+10. [Troubleshooting](#10-troubleshooting)
+11. [How it is built](#11-how-it-is-built)
+12. [Data and licences](#12-data-and-licences)
 
-The agentic page defaults to one search followed by user feedback. A refinement
-requires a new question and can include context, document filters and search
-settings; the feedback and links between searches are saved in MongoDB. The
-optional automatic mode can perform additional searches within a configured limit.
+---
 
-The Query page also runs diagnostic searches to explain each channel. The
-complete interaction involves additional database and external service calls.
-Native reranking uses Atlas project enablement and database authentication;
-app-generated embeddings still require a Voyage API key. The previous HTTP
-path is available with `RERANK_BACKEND=voyage_api`; only that path skips
-reranking if the API key is missing. Native errors have no silent fallback.
+## 1. What you need
 
-## Original files, GridFS and object storage
+| What | Why | Required |
+|---|---|---|
+| **Python 3.11 or 3.12** | runs the application | yes |
+| **A MongoDB Atlas cluster** | stores documents, indexes and memory | yes |
+| **An API key for a language model** (for example Anthropic) | writes the answers | yes |
+| **A Voyage AI key** | only for the manual, context and multimodal modes | no |
+| **Git** | to download the project | recommended |
+| **Tesseract**, **LibreOffice** | OCR for scanned pages, visual pages of Word and PowerPoint files | no |
 
-Original files are the complete uploaded files preserved in their binary format
-so they can be downloaded and opened with the appropriate application.
-[GridFS](https://www.mongodb.com/docs/manual/core/gridfs/) stores and retrieves
-binary files of any format in MongoDB, including PDF, Word, Excel, PowerPoint
-and images. It divides files into binary blocks and stores their metadata; the
-driver reassembles the file on retrieval. These storage blocks serve a different
-purpose from the passages extracted for search. Storing a format does not imply
-that the demo's parsers support extracting its content.
+**The Atlas cluster.** The demo uses recent MongoDB features: `$rankFusion` (MongoDB 8.1 or later),
+Vector Search with automatic embeddings (`autoEmbed`) and the `$rerank` stage. It is tested on
+MongoDB Atlas 9.0. If something is missing in your cluster, the app's component check (see
+[step 4](#4-first-start)) tells you straight away.
 
-The demo implements GridFS to keep binaries in MongoDB. Alternatively, files
-can live in **object storage**, with searchable content, metadata and file
-references in MongoDB. That alternative would require a dedicated application
-integration.
+**Costs.** Atlas, Voyage AI and the language model may have usage costs. Loading 100 reports means
+computing embeddings for about 33,000 passages.
 
-## Four embedding strategies
+**Python.** The demo is tested with Python 3.11 and 3.12. With very recent versions some libraries
+(for example the one that reads PDFs) may not have a ready-made package yet, and installation fails.
+With `uv` you do not need to worry: the command in step 2 downloads Python 3.12 by itself.
 
-Models below are code defaults; configuration can override them.
+> The commands in this guide are for macOS and Linux. On Windows replace `.venv/bin/python` with
+> `.venv\Scripts\python`.
 
-| Mode | Input | Embedding generation | Vector storage |
-|---|---|---|---|
-| `auto` | Chunk text, `voyage-4-large` | Atlas autoEmbed | Atlas index |
-| `manual` | Chunk text, `voyage-4-large` | App calls Voyage | `embedding` |
-| `context` | Chunks grouped with document context, `voyage-context-4` | App calls Voyage | `embedding_context` |
-| `multimodal` | Text and rendered page/slide images, `voyage-multimodal-3.5` | App calls Voyage | `embedding_multimodal` |
+---
 
-The Upload page offers text ingestion using the selected text mode from Admin,
-or text-and-visual ingestion using `multimodal`. Switching modes does not
-convert existing chunks: ingest the document in each mode to compare them.
-Versions of the same file can coexist; `skip` and `replace` apply to the active
-mode. The Query page always searches all populated modes, independently of the
-upload setting, without a mode selector. Optional document filters apply to
-both text and vector branches.
+## 2. Installation
 
-Contextualized embedding preserves local chunk boundaries and page references.
-The current implementation rejects a document when its estimated pre-chunked
-input exceeds 32K tokens; it does not automatically split it into more groups.
+**1. Download the project** and enter the folder:
 
-## Parsers and visual content
+```bash
+git clone <repository-url>
+cd <folder-name>
+```
 
-PyMuPDF reads/renders PDF files, pdfplumber extracts tables, and Tesseract provides
-OCR when installed. MarkItDown extracts text and structure from Office and other
-supported formats. LibreOffice (`soffice`) converts Word/PowerPoint into PDF
-pages for rendering.
+**2. Create the Python environment and install the libraries.** Pick one of the two ways.
 
-LibreOffice is required for **visual Office ingestion**, not PDF ingestion.
-Text-only Office ingestion also attempts conversion, with a MarkItDown fallback.
-Voyage embeds the prepared text/images; it does not replace these parsers.
+With [uv](https://docs.astral.sh/uv/), faster:
 
-**Current multimodal limitation:** embeddings include images, but reranking and
-answer generation receive text and source references only. A visually relevant
-page with little extracted text may lose rank, and the LLM does not see its
-image. Visual retrieval is implemented; image understanding through the entire
-answer pipeline is not. See `src/rerank.py` and `src/generation.py`.
+```bash
+uv venv --python 3.12 .venv
+uv pip install --python .venv/bin/python -r requirements.txt
+```
 
-## Run locally and prepare the database
+With the standard Python tools, if you already have Python 3.11 or 3.12 (check with
+`python3 --version`; you can use `python3.12` instead of `python3`):
 
 ```bash
 python3 -m venv .venv
-source .venv/bin/activate
-pip install -r requirements.txt
-# First setup only, if .env does not exist:
-cp .env.example .env
-python -m uvicorn server:app --port 8000
-# then open localhost:8000
+.venv/bin/python -m pip install -r requirements.txt
 ```
 
-Before starting, configure `.env` with MongoDB connectivity, the Voyage key and
-matching API endpoint, and the chosen LLM provider. Set `OFFICE_CONVERTER` or
-`TESSERACT_CMD` if those executables are outside PATH. Install OCR language data
-as needed. Verify network access, index creation permissions and Atlas feature
-requirements for the selected modes. The app does not provision the cluster or
-external services. Local secrets, virtual environments and uploaded documents
-are excluded from the repository.
+**3. Check that everything is in place** with the automated tests. They connect neither to Atlas
+nor to any model, so they work even before configuration. They need two extra libraries, listed in
+`requirements-dev.txt`:
 
-1. Open **Admin → Prepara database e indici**.
-2. Read the report for connectivity, collections, the document lookup index, GridFS indexes and Atlas
-   index creation requests for all four embedding modes.
-3. Refresh Atlas status and wait for the active vector and shared text indexes
-   to be ready. An accepted creation request is not completed indexing.
-4. Inspect generated MongoDB commands in the index-code expander.
-5. Upload a document, inspect the ingestion summary, then use Query.
+```bash
+uv pip install --python .venv/bin/python -r requirements-dev.txt   # or: .venv/bin/python -m pip install -r requirements-dev.txt
+.venv/bin/python -m pytest -q
+```
 
-Default resources:
+They should all be `passed`.
 
-- `pdf_chunks`: content chunks, metadata and app-generated vectors.
-- `document_id_1_embedding_mode_1`: ordinary index on document identity and
-  embedding mode for ingestion duplicate checks and document lookups.
-- `pdf_files.files`, `pdf_files.chunks`: GridFS original files and ordinary indexes.
-- `pdf_chunks_text_idx`: shared text search index.
-- `pdf_chunks_vector_idx`, `pdf_chunks_manual_idx`, `pdf_chunks_context_idx`,
-  `pdf_chunks_multimodal_idx`: vector indexes for the four strategies.
+---
 
-Setup creates missing resources and compares existing index definitions.
-It reuses an equivalent existing document lookup index when available.
-The separate **Admin → Verifica / Crea indici** button checks the same lookup
-index alongside the Atlas indexes for the selected mode. Its **Drop & recreate**
-option applies to those Atlas indexes, not the ordinary lookup index.
-It updates mismatched definitions with `updateSearchIndex` and leaves matching
-indexes untouched. The shared text index is processed once. Progress and the
-report show per-index actions, field differences, previous/expected definitions,
-MongoDB commands, errors and Atlas status. Incompatible index types are reported;
-drop/recreate remains explicit. Updating an index does not recompute app-generated
-vectors after a model or dimension change.
+## 3. Configuration: the .env file
 
-Atlas changes are asynchronous. During an update, `queryable=true` may refer to
-the previous definition; wait for `READY` before using the new one.
+Settings and keys live in a file called `.env` in the project folder. Create it from the template:
 
-Office whole-document excerpts and MarkItDown fallbacks no longer receive a
-synthetic page 1. Admin also repairs existing `office_structure` and
-`creator=MarkItDown` page metadata without changing content or vectors.
-Rendered PDF page/slide references are preserved. Missing-page citations point
-to the document only. `python -m src.init_db` prepares collections and GridFS
-indexes; Admin includes the citation metadata repair and Atlas index setup.
+```bash
+cp .env.example .env
+```
 
-## Filters and reranking
+Then open `.env` in a text editor. The file is split into numbered, commented sections (comments are
+in Italian). **You only need to fill in the first three**; every line starting with `#` already has
+a default value.
 
-Query exposes document-field filters. `$vectorSearch` requires corresponding
-`filter` index fields; `$search` uses compatible native filters and residual
-`$match` conditions. These filters do not inspect vector coordinates.
-The rerank threshold checks the highest score and can stop generation; it is
-neither a per-passage threshold nor a probability that the answer is correct.
+**Section 1: MongoDB Atlas.** The connection string of your cluster.
 
-Atlas also offers richer vector pre-filters through its `vectorSearch` operator
-inside `$search`, as described in the [hybrid search documentation](https://www.mongodb.com/docs/vector-search/hybrid-search/hybrid-search-overview/).
-This app uses the separate `$vectorSearch` stage. Native
-[`$rerank`](https://www.mongodb.com/docs/vector-search/query/aggregation-stages/rerank/)
-is the default implementation (`RERANK_BACKEND=native`), placed after fusion,
-not inside its input branches. Fusion scores and details are preserved separately
-from rerank scores. All Top-K candidates are returned for the before/after
-explanation; only Top-N reaches the LLM. The cluster was verified as 9.0.4 with
-native rerank-3 enabled on October 19, 2026. Official pages currently differ on
-minimum version requirements; verify the chosen model on the target deployment.
+1. In Atlas: *Database* → your cluster → **Connect** → *Drivers* → copy the `mongodb+srv://...`
+   string.
+2. Replace user and password with those of a database user (*Database Access*).
+3. In *Network Access* add your computer's IP address.
 
-**Instruction-guided reranking:** Voyage supports instructions appended or
-prepended to the query, such as prioritizing actionable procedures for a
-troubleshooting question. This adapts candidate ordering to the user's purpose
-using already indexed documents. Instructions influence relevance; mandatory
-exclusions require explicit filters. See the
-[Voyage documentation](https://www.mongodb.com/docs/voyageai/models/rerankers/?client=python).
-How it Works highlights this capability with a visible example. The Query page
-provides **Istruzioni al reranker (opzionale)** below the question. The field starts
-empty. Empty or whitespace-only input preserves the original query; otherwise
-`src/rerank.py` formats the instructions for native `$rerank.query.text`, or
-the HTTP API's `query` field when that backend is configured.
-Retrieval and generation keep the original question. Reranking details show
-the submitted question and instructions. Instructions are not applied when reranking is
-skipped. An automatic comparison on identical candidates remains future work.
-Benefits on this corpus need measurement; no claim of competitive exclusivity
-is made here.
+```
+MONGODB_URI=mongodb+srv://user:password@cluster.xxxxx.mongodb.net/
+```
 
-The `author` field is mapped as `token` for Search `equals`/`in` and is
-included in the multimodal vector index filters. Admin reconciles old schemas.
+**Section 2: Voyage AI.** If for now you only use the **auto** mode (recommended to start), you can
+leave it empty: Atlas computes embeddings and reranking. The other modes need a Voyage AI key:
 
-## Demonstration and next steps
+- created from your Atlas project: it starts with `al-` and works with the default address;
+- created on the Voyage AI website: it starts with `pa-` and also needs
+  `VOYAGE_API_BASE=https://api.voyageai.com/v1`.
 
-Use the same corpus, questions, filters and parameters for each comparison.
-Observe the expected source's rank, relevance, stage timings and citation
-accuracy. Do not compare raw scores from different stages as a shared scale.
-Include exact terms, paraphrases, context-dependent passages, visual pages,
-filtered queries and an unrelated question. These are suggested scenarios,
-not benchmark results.
+```
+VOYAGE_API_KEY=al-...
+```
 
-The reorganized How it Works page separates ingestion and querying, summarizes
-the four embedding modes, and includes an illustrative walkthrough with sources
-to look for. Technical details remain in expanders. Repeated feature lists,
-static “KPI” cards and the generic traditional-RAG comparison have been removed.
-See the [Italian project guide](README.it.md#pagina-how-it-works) for the page
-structure and remaining technical work. The visual downstream limitation remains open; the author index mappings are aligned by setup.
+**Section 3: the model that writes the answers.** The simplest option is Anthropic:
 
-## Query page
+```
+LLM_PROVIDER=anthropic
+ANTHROPIC_API_KEY=sk-ant-...
+```
 
-The **Domanda** selector contains the five agreed FinanceBench questions and
-**Domanda libera**. Free text starts empty (the old Doganella default is cleared),
-and user drafts survive switching to a preset. Scenario selection and its cards
-are removed. Only question text is sent; expected answers and trap descriptions
-are never added. Query 2 has been removed.
+Alternatively `gemini` (Google) or `ollama` (a model on your own computer, no keys).
 
-Only **Esegui** starts retrieval and generation: browsing rankings, passages and
-the pipeline does not call Atlas, Voyage or the model again.
+> **The `.env` file holds your keys: never share or publish it.** It is already excluded from git by
+> `.gitignore`. `.env.example`, on the other hand, is the key-free template and is part of the
+> project.
 
-Query still searches every populated embedding mode with one text branch and
-one vector branch per mode. The displayed pipeline is the actual Atlas request.
-RRF combines ranks with weight 1, deduplicating by `_id`; Top-K limits each branch
-and the final fusion. Native reranking returns all candidates for comparison;
-only Top-N reaches the LLM. Missing required indexes stop execution. The scope
-inventory is cached for 30 seconds and refreshed on execution.
+---
 
-The result layout is: accepted answer, downloads of cited originals, Trust Panel,
-file/page generation details, then five explanation tabs:
+## 4. First start
 
-1. Query analysis and executed MongoDB pipeline.
-2. Separate BM25 and textual-vector diagnostic lists. BM25 highlights words;
-   vector passages are plain text, with subsequent rerank position and citation
-   status. These diagnostic searches are separate from the main execution.
-   The multimodal diagnostic table is omitted; its main search branch stays active.
-3. Official MongoDB RRF formula, explained weights/constant 60, illustrative
-   example and actual branch ranks. NA/N/A means absence, fixing the old false
-   shared-result counts. Internal chunk-number column and text inspector removed.
-4. Before/after rerank positions, movements, LLM inclusion and citations. Native
-   mode provides all Top-K positions; API mode only the returned positions.
-   No fabricated explanations for individual scores; no separate Rank Journey.
-5. Simple table of passages actually supplied: reference, file, page and cited
-   yes/no. The prompt expander shows only the recorded SYSTEM instructions,
-   deduplicated across attempts; USER messages remain hidden.
-   Old runs without recorded system prompts are explicitly identified.
+```bash
+.venv/bin/python -m uvicorn server:app --port 8000
+```
 
-### Generation, citations and limitations
+Open your browser at **http://localhost:8000**.
 
-The runtime observed in this task remains Ollama `mistral-nemo:latest`, Top-K 50,
-Top-N 8, context 8192, temperature 0.1 and top_p 0.9. Qwen3.6 and larger context/
-Top-N were proposed but not activated. Native reranking defaults to `rerank-3`.
-Configuration environment variables may override repository defaults.
+At the top right there is a status indicator. Click it: the app checks the Atlas connection, the
+documents, the indexes, hybrid search with reranking, encryption and the answer model one by one,
+and tells you what works and what does not. On first start it is normal for documents and indexes
+to be missing: you prepare them in the next two steps.
 
-The general prompt lives in `prompts/system_prompt.txt` and is reread per request,
-with existing inline/file overrides respected. It covers evidence, tables,
-source limitations and internal citations. It contains no reference answers.
-The special increase/decrease and subtraction instructions added after the Adobe
-failure were removed at the user's request: do not tune the demo to its questions.
+To stop the app press `Ctrl+C` in the terminal.
 
-`generate_reviewed_answer` makes at most two attempts on the same passages.
-External/non-internal links, missing citations and out-of-range references fail
-validation. If the final attempt fails, the generated answer is withheld instead
-of being rendered with a warning. Raw attempts remain in memory for diagnosis.
-An insufficient-evidence response may still be shown. Citation checks do not
-validate arithmetic, factual accuracy or whether a passage supports a claim.
-The Ollama `/api/chat` path supplies no browsing tools. A generated external URL
-is not evidence of web access; Atlas/Voyage calls still use configured services.
+---
 
-Historical checks: a fixed public 3M context gave correct answers in 2/3 paired
-runs with the old prompt and 3/3 with the revised general prompt. This does not
-prove general reliability or success with the requested cash-flow source: page
-46 was outside the eight supplied passages. On October 20, Adobe question 5
-produced +476 and an external link despite receiving the correct 2021/2022 values
-(4,822 and 4,756). It remains a failed case; no new LLM run has validated the later
-citation-blocking changes. Details and manual results are in
-[DEMO_PLAN.md](DEMO_PLAN.md) and [DEMO_QUERIES.md](DEMO_QUERIES.md).
+## 5. Prepare the database and indexes
 
-Restart the web server (or run it with `--reload`) after Python-module or
-configuration changes. Prompt-file edits are read per call.
+Do this once, on a new cluster.
 
-## Client-side encryption of agent memory (CSFLE)
+1. Open the **Admin** page.
+2. In the *Indici di ricerca* (search indexes) box press **Verifica e prepara gli indici**.
 
-The first question of each session (`agentic_sessions.first_question`) is encrypted by
-the application before it reaches Atlas, using explicit Client-Side Field Level
-Encryption with the randomized algorithm. Atlas, backups and cluster administrators
-see only binary data (BSON subtype 6); the application, which holds the key, reads it.
+The app creates the collections, the indexes for the original files (GridFS), the text index and one
+vector index for each of the four modes. It does not delete anything. Atlas takes a few minutes to
+make the indexes ready: in the table their status changes to `READY`.
 
-- Master key: 96 bytes in a local file outside the project (`CSFLE_MASTER_KEY_PATH`,
-  default `~/.config/rag-demo/csfle-master-key.bin`); production deployments should use a KMS.
-- Data key: `encryption.__keyVault`, alt name `rag-demo-sessioni`.
-- Setup once per cluster: `.venv/bin/python -m src.field_encryption setup`.
-- Only the first question is encrypted; the same text remains in plain form in
-  `memory.messages`, `memory.turn_summaries` and `agentic_runs`.
-- Automatic encryption is not used: MongoDB documents that `$rerank` is not supported
-  by clients configured for automatic encryption.
-- Two machines on the same cluster need the same master key file.
+---
 
-## Project structure
+## 6. Download and load the 100 documents
 
-- `server.py`: web server (Starlette), JSON APIs and event streams.
-- `web/`: the pages (`index.html`, `style.css`, `app.js`).
-- `src/web_services.py`: page services (step-by-step Query, Upload, Admin, health checks).
-- `src/agent.py`, `src/agentic_search.py`, `src/agentic_memory.py`: agentic search and its MongoDB memory.
-- `src/retrieval_details.py`: passage identity and fusion branch ranks.
-- `src/search_scope.py`: shared search inventory, scope and index explanations.
-- `src/answer_quality.py`: answer generation, role-tag cleanup and citation checks.
-- `src/`: ingestion, embedding, retrieval, reranking, generation and configuration.
-- `src/init_db.py`, `src/indexes.py`: collection and index setup.
-- `src/field_encryption.py`: client-side encryption (CSFLE) of session first questions.
-- `schemas/`: Atlas Search and Vector Search index definitions.
-- `prompts/`: LLM instructions for answers with sources.
-- `tests/`: offline tests (mongomock); `scripts/`: FinanceBench corpus preparation
-  and one-off Voyage API checks.
+The PDFs are **not included** in the project: they are 180 MB and belong to the public FinanceBench
+dataset. A script downloads them, always the same 100 files, checking that each one is identical to
+the original.
 
-Update both guides when setup, modes, dependencies or limitations change.
+**1. Download the PDFs** (about one minute):
+
+```bash
+.venv/bin/python scripts/prepare_financebench.py
+```
+
+You will find 100 PDFs in `data/financebench_100/pdfs`. If the download stops, run the same command
+again: it resumes with the missing files.
+
+**2. Load them into the demo:**
+
+1. Open the **Upload** page.
+2. Choose the **auto** mode.
+3. Press **una cartella** (a folder) and select `data/financebench_100/pdfs`. Select `pdfs` only,
+   not the folder above it, which also contains service files.
+4. Press **Avvia il caricamento** (start loading).
+
+For each document the app extracts the text (tables included), splits it into passages, stores them
+in MongoDB and keeps the original PDF in GridFS. With 100 reports this takes a while: keep the page
+open. You can already ask questions about the documents loaded so far.
+
+---
+
+## 7. Ask your first questions
+
+Open **Query** or **Ricerca agentica** (agentic search). Below the question box there are some
+ready-made examples; click one and start the search. For example:
+
+- *What were 3M's capital expenditures in 2018, in millions of dollars?*
+- *How much did Adobe spend on research and development in fiscal 2022?*
+- *How many manufacturing plants did 3M have in 2018, and how much did Adobe spend on R&D in fiscal
+  2022?* (a two-part question: see how the agent splits it)
+- *How do you make a Neapolitan pizza?* (off-topic: the app does not make up an answer)
+
+The example questions are designed for these documents: for other companies and years the answers
+depend on what the 100 files contain.
+
+The **Dove cercare** (where to search) selector below the question decides which passages to search:
+one indexing mode or **tutte** (all of them).
+
+---
+
+## 8. The demo pages
+
+| Page | What it shows |
+|---|---|
+| **MongoDB** | why MongoDB is the platform of the demo: document model, search, AI, security |
+| **Come funziona** (how it works) | the three paths: question, agentic search, document loading |
+| **Upload** | document loading, with the four indexing modes |
+| **Query** | classic RAG, step by step |
+| **Ricerca agentica** | the agent, with the timeline of every decision |
+| **Admin** | status, indexes, documents per mode, reset |
+
+### Query
+
+1. MongoDB searches in parallel **by keywords** (`$search`, BM25) and **by meaning**
+   (`$vectorSearch`).
+2. `$rankFusion` merges the two rankings.
+3. `$rerank` reorders the candidates with a Voyage AI model.
+4. The best passages go to the model, which writes **a single answer** with citations.
+
+After the answer, *Dentro la ricerca* (inside the search) shows what each engine found, how the
+rankings were merged, what the reranking changed and the MQL pipeline that ran. Every number in the
+answer is checked against the cited passage. With the **Equilibrio della fusione** (fusion balance)
+slider you can shift the weight between keywords and meaning and immediately see how the sources
+change, without calling the model.
+
+If the best passage is below the **minimum relevance threshold**, the model is not called.
+
+### Agentic search
+
+The agent runs a first search and **checks element by element** whether the evidence is enough. If
+something is missing it runs targeted searches, up to 5 additional ones (configurable in the
+settings). It stops earlier if a search brings no new passages or if two different searches find
+nothing: in that case it does not make up an answer and does not show unrelated sources.
+
+- **Multi-part questions**: one search per part.
+- **Different values in different years**, with a question that has no year: it asks which year you
+  mean.
+- **Conversation**: it remembers the previous questions of the session, so you can ask "and in
+  2019?".
+- **Computed numbers**: if the answer adds up two values from the sources, it says so and shows the
+  calculation.
+
+Every step is stored in MongoDB (`agentic_runs`) and can be reviewed from the session questions menu.
+
+### The four indexing modes
+
+| Mode | Who computes the vectors | When to use it |
+|---|---|---|
+| **auto** | MongoDB Atlas, with Voyage AI | to start: no embedding code |
+| **manual** | the application, with the Voyage AI API | to choose model and chunking |
+| **context** | the application, with `voyage-context` | each passage takes the rest of the document into account |
+| **multimodal** | the application, with `voyage-multimodal` | slides, charts, scans: image and text of the page |
+
+In **manual** the Upload page lets you choose the chunking strategy (by structure or fixed window),
+the passage size and the overlap.
+
+**Limit of the context mode:** it works with documents up to about 32,000 tokens. 10-K reports are
+longer, so for this dataset use auto or manual.
+
+---
+
+## 9. Optional features
+
+**Client-side field level encryption (CSFLE).** The first question of each agent session can be
+stored encrypted: MongoDB keeps only the encrypted value and only the application holding the key can
+read it. To enable it, once:
+
+```bash
+.venv/bin/python -m src.field_encryption setup
+```
+
+The command creates a master key in `~/.config/rag-demo/`, outside the project, and a data key in
+Atlas. Without this step the demo works and stores the question in clear text. The
+**🔒 Come MongoDB conserva i dati** button, below the agent's answer, shows the same document as seen
+by the application and as seen by the database.
+
+**OCR and Office documents.** For scanned pages install Tesseract. For visual pages of Word and
+PowerPoint files in multimodal mode install LibreOffice. If they are not in your PATH, set their path
+in `.env` (section 6).
+
+**Other models.** In `.env` (sections 3 and 4) you can choose another provider, another model, or a
+different model for the agent's decisions. The instructions given to the model are in
+`prompts/system_prompt.txt`.
+
+---
+
+## 10. Troubleshooting
+
+| Message or symptom | What to do |
+|---|---|
+| Installation fails while "building" a package (`pymupdf`, `cryptography`) | your Python version is too recent: recreate the environment with `uv venv --python 3.12 .venv` |
+| `KeyError: 'MONGODB_URI'` on start | the `.env` file or its `MONGODB_URI` line is missing ([step 3](#3-configuration-the-env-file)) |
+| Atlas not reachable | check user and password in the string and that your IP is in *Network Access* |
+| "Non ci sono documenti caricati in modalità …" | load documents in that mode, or pick another one in *Dove cercare* |
+| "Indici non interrogabili" | Admin → *Verifica e prepara gli indici*, then wait for `READY` |
+| "Il modello configurato non è disponibile" | check `LLM_PROVIDER` and the matching key in `.env` |
+| "Modalità manual: serve VOYAGE_API_KEY" | add the Voyage key to `.env`, or use the auto mode |
+| Error in context mode on a long document | that is the ~32,000-token limit: use auto or manual |
+| Pages do not show the latest changes | reload the browser with `Cmd+Shift+R` (`Ctrl+Shift+R` on Windows) |
+
+---
+
+## 11. How it is built
+
+```
+server.py               web server (Starlette): pages and API
+web/                    interface: index.html, style.css, app.js (plain JavaScript, no framework)
+prompts/                instructions for the model
+scripts/                download of the 100 FinanceBench PDFs
+src/
+  config.py             reads the .env file
+  ingestion.py          document reading, chunking, storage in MongoDB and GridFS
+  indexes.py            index definitions and creation
+  retrieval.py          search pipeline: $search + $vectorSearch → $rankFusion → $rerank
+  web_services.py       page logic (Query, Upload, Admin, component check)
+  agent.py              agentic search engine
+  agentic_search.py     planning, evidence grading, targeted searches
+  citation_check.py     checks the numbers in the answer against the sources
+  agentic_memory.py     sessions and history in MongoDB
+  field_encryption.py   client-side field level encryption (CSFLE)
+tests/                  automated tests (use neither Atlas nor the models)
+```
+
+**Data in MongoDB** (database `rag`):
+
+| Collection | Content |
+|---|---|
+| `pdf_chunks` | one document per passage: text, metadata, page, mode, vector if any |
+| `pdf_files.files`, `pdf_files.chunks` | the original files (GridFS) |
+| `agentic_sessions` | conversations with the agent |
+| `agentic_runs` | every agentic search, step by step |
+| `app_settings` | the last search mode chosen |
+| `encryption.__keyVault` | the encryption data key (CSFLE only) |
+
+---
+
+## 12. Data and licences
+
+The documents come from **FinanceBench** by Patronus AI
+([repository](https://github.com/patronus-ai/financebench)): public financial documents of
+US-listed companies. They are not included in this project; the script downloads them from a
+specific version of that repository (list in `scripts/financebench_100.json`). Check FinanceBench's
+terms of use before using them outside a demo.
