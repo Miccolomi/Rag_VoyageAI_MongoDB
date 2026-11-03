@@ -58,14 +58,16 @@ def inspect_scope(scope: str) -> dict:
             mismatched.append(name)
     return {"database": coll.database.name, "collection": coll.name, "modes": modes,
             "rows": rows, "text_index": config.SEARCH_INDEX_NAME,
+            "text_index_status": indexes.get(config.SEARCH_INDEX_NAME, {}).get("status", "MANCANTE"),
             "unavailable": unavailable, "mismatched": mismatched,
             "unclassified": sum(n for mode, n in counts.items() if mode not in EMBED_MODES)}
 
 
-# ─── Modalità attiva ──────────────────────────────────────────────────────
-# Una sola modalità di embedding è attiva alla volta: l'Upload carica in
-# quella modalità e Query e Ricerca agentica cercano solo lì. La scelta è
-# salvata in MongoDB, così resta valida dopo un riavvio e in ogni scheda.
+# ─── Modalità di ricerca ──────────────────────────────────────────────────
+# Dove cercano Query e Ricerca agentica: una modalità o tutte ("all"). Si sceglie
+# nelle due pagine (e in Admin) e ogni richiesta la porta con sé; l'Upload non la
+# cambia. L'ultima scelta è salvata in MongoDB come predefinita per la prossima apertura.
+SEARCH_MODES = [*EMBED_MODES, "all"]
 
 _SETTINGS_COLLECTION = "app_settings"
 _ACTIVE_MODE_ID = "active_embed_mode"
@@ -93,11 +95,11 @@ def load_active_mode(default: str | None = None) -> str:
     except Exception:
         return fallback
     mode = (doc or {}).get("mode")
-    return mode if mode in EMBED_MODES else fallback
+    return mode if mode in SEARCH_MODES else fallback
 
 
 def save_active_mode(mode: str) -> None:
-    if mode not in EMBED_MODES:
+    if mode not in SEARCH_MODES:
         raise ValueError(f"Modalità sconosciuta: {mode}")
     from datetime import datetime, timezone
     config.get_db()[_SETTINGS_COLLECTION].update_one(
@@ -113,7 +115,7 @@ def require_scope(scope: str) -> dict:
     if not info["modes"] or not any(row["Chunk presenti"] for row in info["rows"] if row["Inclusa"] == "Sì"):
         label = scope if scope != "all" else "tutte le modalità"
         raise ValueError(f"Non ci sono documenti caricati in modalità `{label}`. Caricali dalla pagina Upload "
-                         "con questa modalità, oppure scegli un'altra modalità attiva.")
+                         "con questa modalità, oppure scegli un'altra modalità di ricerca.")
     if info["unavailable"]:
         raise ValueError("Indici non interrogabili: " + ", ".join(info["unavailable"])
                          + ". Apri Admin → Prepara database e indici e attendi che siano pronti.")

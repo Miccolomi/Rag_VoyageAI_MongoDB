@@ -126,6 +126,17 @@ def _read_json(text: str) -> dict[str, Any]:
     return value
 
 
+# Domanda con più richieste indipendenti: due punti di domanda, un punto e virgola, oppure
+# «e quanto…», «e quali…» che introducono una seconda domanda. Solo un indizio: decide il pianificatore.
+_MULTI_PART = re.compile(
+    r"\?.*\S.*\?|;|\b(?:e|ed|and|inoltre|oltre a)\s+(?:quant|qual|com[e’']|dove|chi|quand|cosa|che\b|what|how|which|where|when)",
+    re.I | re.S)
+
+
+def looks_multi_part(question: str) -> bool:
+    return bool(_MULTI_PART.search((question or "").strip().rstrip("?").strip()))
+
+
 def plan_search(
     question: str,
     history: list[dict[str, Any]],
@@ -146,6 +157,9 @@ def plan_search(
         "(una domanda breve e autonoma, al massimo 25 parole, che riformula la domanda corrente risolvendo "
         "i riferimenti alla conversazione e conserva tutti i suoi vincoli, inclusa l'eventuale fonte richiesta; "
         "NON aggiungere richieste, dettagli, istruzioni o elementi facoltativi che l'utente non ha chiesto) "
+        "search_queries (lista di ricerche autonome: più di una SOLO se la domanda chiede informazioni "
+        "indipendenti che stanno in documenti diversi, per esempio aziende, anni o metriche diverse; massimo 4; "
+        "ciascuna con azienda, anno e metrica espliciti; altrimenti una lista con la sola search_query) "
         "e comment (una frase breve, visibile all'utente, "
         "che descrive l'obiettivo della ricerca senza termini tecnici interni)."
     )
@@ -164,13 +178,17 @@ def plan_search(
         comment = str(value.get("comment", "")).strip()
         if not search_query:
             raise ValueError("search_query vuota")
-        return {"search_query": search_query[:1000], "comment": comment[:500] or "Imposto una ricerca autonoma.",
-                "error": None}
+        raw = value.get("search_queries")
+        parts = [str(q).strip()[:500] for q in raw if str(q).strip()] if isinstance(raw, list) else []
+        parts = list(dict.fromkeys(parts))[:4] or [search_query[:1000]]
+        return {"search_query": search_query[:1000], "search_queries": parts,
+                "comment": comment[:500] or "Imposto una ricerca autonoma.", "error": None}
     except Exception as exc:
         # Il fallimento del pianificatore non blocca la ricerca, ma resta
         # visibile: una chiave scaduta non deve sembrare una scelta dell'agente.
         log.warning("Pianificatore non riuscito: %s: %s", type(exc).__name__, exc)
-        return {"search_query": question, "comment": "Avvio la ricerca con la domanda originale.",
+        return {"search_query": question, "search_queries": [question],
+                "comment": "Avvio la ricerca con la domanda originale.",
                 "error": f"{type(exc).__name__}: {str(exc)[:300]}"}
 
 

@@ -102,7 +102,10 @@ LLM_MAX_TOKENS: int = int(os.getenv("LLM_MAX_TOKENS", "1500"))
 # Peso del ramo testuale in $rankFusion quando si cerca in più modalità:
 #   "balanced" → il testo pesa quanto la somma dei rami vettoriali
 #   "equal"    → ogni ramo pesa 1 (comportamento precedente)
-HYBRID_TEXT_WEIGHT_MODE: str = os.getenv("HYBRID_TEXT_WEIGHT_MODE", "balanced").lower()
+# Default "equal": con "balanced" e due modalità il testo pesa 2 e, con $limit dopo la fusione,
+# anche il 20° risultato testuale batte il 1° semantico: la semantica sparisce dai candidati
+# (misurato su Atlas con la modalità «tutte»: la pagina giusta usciva dai candidati).
+HYBRID_TEXT_WEIGHT_MODE: str = os.getenv("HYBRID_TEXT_WEIGHT_MODE", "equal").lower()
 if HYBRID_TEXT_WEIGHT_MODE not in {"balanced", "equal"}:
     raise ValueError("HYBRID_TEXT_WEIGHT_MODE deve essere balanced oppure equal")
 # Unisce le copie dello stesso passaggio salvate in modalità diverse prima del

@@ -178,13 +178,17 @@ def check_citations(answer: str, passages: list[dict]) -> list[dict[str, Any]]:
     """Una riga per ogni numero della risposta.
 
     status: "found" (stesso valore), "rounded" (valore arrotondato),
+    "computed" (somma o differenza di altri numeri della stessa frase trovati nelle fonti),
     "not_found" (assente dai passaggi citati), "uncited" (frase senza citazione).
     """
     rows: list[dict[str, Any]] = []
     passage_numbers: dict[int, list[dict[str, Any]]] = {}
     seen: set[tuple[str, tuple[int, ...]]] = set()
+    # Lo stesso valore scritto due volte ("1.577 milioni" e poi "1.577") trova la stessa cifra
+    # nello stesso passaggio: è un solo riscontro, non due.
+    evidence_seen: set[tuple[int, int]] = set()
 
-    for paragraph in re.split(r"\n\s*\n|\n(?=\s*[-*•]|\s*\d+[.)]\s)", answer or ""):
+    for paragraph_index, paragraph in enumerate(re.split(r"\n\s*\n|\n(?=\s*[-*•]|\s*\d+[.)]\s)", answer or "")):
         paragraph_refs = _cited(paragraph)
         for sentence in _SENTENCE_END.split(paragraph):
             refs = _cited(sentence) or paragraph_refs
@@ -199,7 +203,9 @@ def check_citations(answer: str, passages: list[dict]) -> list[dict[str, Any]]:
                     continue
                 seen.add(key)
                 row = {"claim": shown, "refs": refs, "status": "uncited" if not refs else "not_found",
-                       "ref": refs[0] if refs else None, "excerpt": None}
+                       "ref": refs[0] if refs else None, "excerpt": None,
+                       "paragraph": paragraph_index, "_number": claim}
+                evidence = None
                 for ref in refs:
                     content = passages[ref - 1].get("content") or ""
                     if ref not in passage_numbers:
@@ -214,14 +220,63 @@ def check_citations(answer: str, passages: list[dict]) -> list[dict[str, Any]]:
                     if hit and (row["status"] != "found"):
                         row.update(status="found" if hit[0] == "exact" else "rounded", ref=ref,
                                    excerpt=_excerpt(content, hit[1]["start"], hit[1]["end"]))
+                        evidence = (ref, hit[1]["start"])
                         if hit[0] == "exact":
                             break
+                if evidence is not None:
+                    if evidence in evidence_seen:
+                        continue
+                    evidence_seen.add(evidence)
                 rows.append(row)
+    _mark_computed(rows)
+    for row in rows:
+        row.pop("_number", None)
     return rows
 
 
+def _value(number: dict[str, Any]) -> float | None:
+    if not number["values"]:
+        return None
+    return number["values"][0][0] * (number["scale"] or 1.0)
+
+
+def _mark_computed(rows: list[dict[str, Any]]) -> None:
+    """Un numero assente dalla fonte ma uguale alla somma o alla differenza di altri numeri della
+    stessa parte della risposta, a loro volta trovati nelle fonti: è un valore calcolato, non un errore.
+
+    Gli operandi devono comparire nella risposta stessa: così il calcolo è esplicito e verificabile,
+    e non si scambia per calcolo una coincidenza tra i tanti numeri di una tabella.
+    """
+    for row in rows:
+        if row["status"] != "not_found" or row["_number"]["percent"]:
+            continue
+        target = _value(row["_number"])
+        operands = [(other, _value(other["_number"])) for other in rows
+                    if other is not row and other["paragraph"] == row["paragraph"]
+                    and other["status"] in {"found", "rounded"} and not other["_number"]["percent"]]
+        operands = [(other, value) for other, value in operands if value is not None]
+        if target is None or len(operands) < 2:
+            continue
+        formula = None
+        for i, (a, va) in enumerate(operands):
+            for b, vb in operands[i + 1:]:
+                if _close(va + vb, target):
+                    formula = f"{a['claim']} + {b['claim']}"
+                elif _close(abs(va - vb), target):
+                    big, small = (a, b) if va >= vb else (b, a)
+                    formula = f"{big['claim']} − {small['claim']}"
+                if formula:
+                    break
+            if formula:
+                break
+        if not formula and len(operands) > 2 and _close(sum(v for _, v in operands), target):
+            formula = " + ".join(other["claim"] for other, _ in operands)
+        if formula:
+            row.update(status="computed", formula=formula)
+
+
 def summarize(rows: list[dict[str, Any]]) -> dict[str, int]:
-    counts = {"found": 0, "rounded": 0, "not_found": 0, "uncited": 0}
+    counts = {"found": 0, "rounded": 0, "computed": 0, "not_found": 0, "uncited": 0}
     for row in rows:
         counts[row["status"]] += 1
     return counts

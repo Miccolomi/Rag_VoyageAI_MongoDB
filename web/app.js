@@ -1,4 +1,4 @@
-/* RAG Demo · MongoDB Atlas — interfaccia web senza framework. */
+/* RAG Demo · MongoDB — interfaccia web senza framework. */
 "use strict";
 
 const $ = (sel, root = document) => root.querySelector(sel);
@@ -74,11 +74,61 @@ async function loadInfo() {
   try {
     state.info = await getJSON("/api/info");
     const i = state.info;
-    $("#meta").textContent = `DB ${i.database} · ${i.collection} · modalità attiva ${i.active_mode} · ${i.embed_model} · rerank ${i.rerank} · LLM ${i.llm}`;
+    renderMeta();
     document.dispatchEvent(new Event("rag:info"));
   } catch (e) {
     $("#meta").textContent = "Server non raggiungibile: " + e.message;
   }
+}
+
+function renderMeta() {
+  const i = state.info || {};
+  const [llmVia, llmModel] = String(i.llm || "").includes(" · ") ? i.llm.split(" · ") : ["", i.llm];
+  const native = String(i.rerank || "").includes("native");
+  const step = (color, value, title) => `<span class="hstep" style="--c:${color}" title="${esc(title)}">${esc(value)}</span>`;
+  const arrow = '<i class="harrow">→</i>';
+  $("#meta").innerHTML = [
+    step("var(--accent-bright)", "MongoDB", `Database ${i.database}, collection ${i.collection}`),
+    `<span class="hmode" title="Dove cercano Query e Ricerca agentica: si sceglie nelle due pagine">${esc(modeName(i.active_mode))}</span>`, arrow,
+    step("#7aa7ff", embedFor(i.active_mode), "Voyage AI: trasforma testo e domanda in vettori"), arrow,
+    step("#7aa7ff", `${(i.models || {}).rerank || i.rerank}${native ? " in MongoDB" : ""}`, "Voyage AI: riordina i risultati per pertinenza"), arrow,
+    step("var(--agent)", llmModel, llmVia ? `Scrive la risposta con le citazioni, tramite ${llmVia}` : "Scrive la risposta con le citazioni"),
+  ].join("");
+}
+
+// ─── Dove cercare: scelta della modalità in Query e Ricerca agentica ───
+const SEARCH_MODES = ["auto", "manual", "context", "multimodal", "all"];
+const modeName = (m) => (m === "all" ? "tutte" : m);
+function embedFor(m) {
+  const md = state.info?.models || {};
+  const one = (x) => ({ context: md.context, multimodal: md.multimodal }[x] || md.embed);
+  if (m !== "all") return one(m);
+  const used = [...new Set(Object.keys(state.info?.counts || {}).filter((x) => state.info.counts[x]).map(one))];
+  return used.length === 1 ? used[0] : `${used.length} modelli Voyage`;
+}
+
+function modePicker() {
+  const el = h(`<div class="mode-pick"><span class="mp-label">Dove cercare</span><div class="seg"></div>
+    <span class="small muted" id="mp-note"></span></div>`);
+  const draw = () => {
+    const i = state.info || {};
+    const counts = i.counts || {};
+    const total = Object.values(counts).reduce((a, b) => a + b, 0);
+    const n = (m) => (m === "all" ? total : counts[m] || 0);
+    $(".seg", el).innerHTML = SEARCH_MODES.map((m) => `<button type="button" data-m="${m}" class="${m === i.active_mode ? "on" : ""}" ${n(m) ? "" : "disabled"}
+      title="${n(m) ? `${n(m).toLocaleString("it-IT")} passaggi` : "nessun documento caricato in questa modalità"}">${modeName(m)} <small>${n(m).toLocaleString("it-IT")}</small></button>`).join("");
+    $("#mp-note", el).textContent = i.active_mode === "all" ? "tutte le modalità con documenti, risultati fusi" : "";
+    $$(".seg button", el).forEach((b) => b.onclick = async () => {
+      if (state.busy || b.dataset.m === state.info.active_mode) return;
+      state.info.active_mode = b.dataset.m;
+      draw(); renderMeta();
+      sendJSON("/api/admin/mode", { mode: b.dataset.m }).catch(() => {});
+    });
+  };
+  draw();
+  const onInfo = () => (el.isConnected ? draw() : document.removeEventListener("rag:info", onInfo));
+  document.addEventListener("rag:info", onInfo);
+  return el;
 }
 
 // ─── Verifica dei componenti (pill in alto) ───────────────────────────
@@ -131,30 +181,19 @@ window.addEventListener("hashchange", route);
 // ─── Pagina: Come funziona ─────────────────────────────────────────────
 pages.come = (main) => {
   main.append($("#tpl-come").content.cloneNode(true));
-  const frame = $(".arch-frame", main);
-  if (frame) frame.addEventListener("load", () => {
-    try {
-      const doc = frame.contentDocument;
-      // Nella demo niente rimandi esterni: si nasconde il link promozionale del visualizzatore.
-      doc.head.insertAdjacentHTML("beforeend", "<style>.diagram-guide-credit{display:none!important}</style>");
-      // Il visualizzatore occupa almeno l'altezza della finestra: si misura il contenuto reale.
-      const fit = () => {
-        const bottom = Math.max(...[...doc.body.children].map((el) => el.getBoundingClientRect().bottom + doc.defaultView.scrollY));
-        if (bottom > 200) frame.style.height = Math.ceil(bottom + 24) + "px";
-      };
-      fit(); setTimeout(fit, 600);
-    } catch { /* stessa origine: non dovrebbe succedere */ }
-  });
+  // Nomi dei modelli dalla configurazione reale.
+  const fill = () => { for (const el of $$("[data-model]", main)) { const m = state.info?.models?.[el.dataset.model]; if (m) el.textContent = m; } };
+  fill();
+  document.addEventListener("rag:info", fill, { once: true });
 };
 
-// ─── Pagina: MongoDB dettagli ──────────────────────────────────────────
+// ─── Pagina: MongoDB ──────────────────────────────────────────
 pages.mongodb = (main) => {
   main.append($("#tpl-mongo").content.cloneNode(true));
   const fill = () => {
     const i = state.info; if (!i) return;
-    const chunks = Object.values(i.counts || {}).reduce((a, b) => a + b, 0);
     const set = (k, v) => { const el = $(`[data-stat="${k}"]`, main); if (el) el.textContent = v; };
-    set("chunks", chunks.toLocaleString("it-IT"));
+    if (i.documents != null) set("documents", i.documents.toLocaleString("it-IT"));
     set("indexes", String((i.indexes || []).length + 1));
     for (const el of $$("[data-model]", main)) { const m = i.models?.[el.dataset.model]; if (m) el.textContent = m; }
     const code = $(".mx-code", main);
@@ -164,9 +203,9 @@ pages.mongodb = (main) => {
   document.addEventListener("rag:info", fill, { once: true });
   // Collega le parti del documento alle capacità che alimentano.
   const doc = $(".mx-doc", main);
-  const mark = (f) => $$("[data-f]", doc).forEach((el) => el.classList.toggle("on", !!f && el.dataset.f === f));
+  const mark = (f) => $$("[data-f]", doc).forEach((el) => el.classList.toggle("on", !!f && el.dataset.f.split(" ").includes(f)));
   $$(".mx-dc, .mx-json [data-f]", doc).forEach((el) => {
-    el.addEventListener("mouseenter", () => mark(el.dataset.f));
+    el.addEventListener("mouseenter", () => mark(el.dataset.f.split(" ")[0]));
     el.addEventListener("mouseleave", () => mark(null));
   });
   // Le capacità entrano in scena quando arrivano sullo schermo.
@@ -183,22 +222,24 @@ async function loadLiveProtection(main) {
     box.innerHTML = v.empty
       ? `<p class="muted">Ancora nessuna sessione cifrata: fai una domanda nella Ricerca agentica e torna qui per vedere il confronto dal vivo.</p>`
       : `<div class="cs-live-tag">● dal vivo · ultima sessione della Ricerca agentica</div>` + protectionCompare(v);
-  } catch { box.innerHTML = `<p class="muted">Confronto dal vivo non disponibile: Atlas non risponde.</p>`; }
+  } catch { box.innerHTML = `<p class="muted">Confronto dal vivo non disponibile: il database non risponde.</p>`; }
 }
 
 // ─── Componenti condivisi ──────────────────────────────────────────────
-function questionBox({ placeholder, button, onSubmit, settingsHtml = "" }) {
+function questionBox({ placeholder, button, onSubmit, settingsHtml = "", settingsTitle = "Impostazioni della ricerca" }) {
   const el = h(`<div class="card ask">
       <textarea id="q" placeholder="${esc(placeholder)}"></textarea>
       <div class="chips" id="demo"></div>
+      <div id="mode-slot"></div>
       <div class="ask-actions">
         <button class="primary" id="go">${esc(button)}</button>
         <span class="muted small" id="elapsed"></span>
         <span class="spacer"></span>
       </div>
-      ${settingsHtml ? `<details><summary>Impostazioni della ricerca</summary><div class="settings">${settingsHtml}</div></details>` : ""}
+      ${settingsHtml ? `<details><summary>${esc(settingsTitle)}</summary><div class="settings">${settingsHtml}</div></details>` : ""}
     </div>`);
   const q = $("#q", el);
+  $("#mode-slot", el).replaceWith(modePicker());
   const fillChips = () => {
     const box = $("#demo", el);
     if (box.childElementCount) return;
@@ -229,12 +270,14 @@ function verdictBadge(kind, label) { return `<span class="badge ${esc(kind)}">${
 
 function citationRows(rows, sources) {
   if (!rows?.length) return `<p class="muted small">La risposta non contiene importi o percentuali da verificare.</p>`;
-  const labels = { found: "✓ trovato", rounded: "≈ arrotondato", not_found: "⚠ non trovato", uncited: "senza citazione" };
+  const labels = { found: "✓ Corrispondenza trovata", rounded: "≈ arrotondato", computed: "∑ calcolato", not_found: "⚠ non trovato", uncited: "senza citazione" };
   return rows.map((r) => {
     const src = r.ref ? sources[r.ref - 1] : null;
-    const where = src ? `#${r.ref} · ${esc(shortFile(src.filename))} · ${esc(pageLabel(src.page ?? src.page_number))}` : "Nessun passaggio citato";
-    const ex = r.excerpt ? `“${esc(r.excerpt.before)}<mark>${esc(r.excerpt.match)}</mark>${esc(r.excerpt.after)}”` :
+    const whereSrc = src ? `#${r.ref} · ${esc(shortFile(src.filename))} · ${esc(pageLabel(src.page ?? src.page_number))}` : "Nessun passaggio citato";
+    const ex = r.status === "computed" ? `Calcolato: <b>${esc(r.claim)} = ${esc(r.formula)}</b>, con valori trovati nelle fonti.` :
+      r.excerpt ? `“${esc(r.excerpt.before)}<mark>${esc(r.excerpt.match)}</mark>${esc(r.excerpt.after)}”` :
       r.status === "not_found" ? "Il numero non compare nel passaggio citato." : "";
+    const where = r.status === "computed" ? "Calcolo sui valori della risposta" : whereSrc;
     return `<div class="check-row"><b>${esc(r.claim)}</b><div><div class="muted">${where}</div><div>${ex}</div></div>
             <span class="tag ${esc(r.status)}">${labels[r.status] || r.status}</span></div>`;
   }).join("");
@@ -271,7 +314,8 @@ function lanes(container, { columns, target, items, cut = null }) {
   for (let r = 0; r < rows; r++) if (r % 2 === 0) svg += `<rect x="0" y="${top + r * rowH}" width="${W}" height="${rowH}" fill="currentColor" opacity="0.035"/>`;
   const head = (x, anchor, c) => `<text x="${x}" y="18" text-anchor="${anchor}" font-size="13" font-weight="600" fill="currentColor">${esc(c.title)}</text>` +
     `<text x="${x}" y="34" text-anchor="${anchor}" font-size="11" fill="currentColor" opacity=".6">${esc(c.sub || "")}</text>`;
-  columns.forEach((c, i) => svg += head(colX[i], "middle", c));
+  // Nel grafico a specchio i titoli delle colonne esterne si allineano ai bordi: centrati uscirebbero dal riquadro.
+  columns.forEach((c, i) => svg += mirrored ? head(i === 0 ? 2 : W - 2, i === 0 ? "start" : "end", c) : head(colX[i], "middle", c));
   svg += head(mirrored ? (box.l + box.r) / 2 : box.l + 12, mirrored ? "middle" : "start", target);
   columns.forEach((_, i) => {
     for (let r = 1; r <= maxRank; r++) svg += `<text x="${colX[i]}" y="${y(r) + 4}" text-anchor="middle" font-size="11" fill="currentColor" opacity=".45">#${r}</text>`;
@@ -322,17 +366,17 @@ ${fieldLine}<span class="j-p">}</span>`;
   const atlasNote = v.encrypted
     ? `Il campo è un dato binario di ${esc(sv.bytes)} byte (sottotipo 6 = cifrato lato client). Così lo vedono Compass, un backup, un amministratore del cluster.`
     : v.encryption_error
-      ? `Cifratura non riuscita sul server che ha salvato questa sessione, quindi il campo è in chiaro anche in Atlas. Motivo: ${esc(v.encryption_error)}`
-      : `Sessione salvata senza cifratura: prima che fosse attiva, o da un server dove non funzionava. Il campo è in chiaro anche in Atlas. Prova con una nuova sessione.`;
+      ? `Cifratura non riuscita sul server che ha salvato questa sessione, quindi il campo è in chiaro anche nel database. Motivo: ${esc(v.encryption_error)}`
+      : `Sessione salvata senza cifratura: prima che fosse attiva, o da un server dove non funzionava. Il campo è in chiaro anche nel database. Prova con una nuova sessione.`;
   return `<div class="cs-flow">
-      <div><b>1 · Scrivi la domanda</b><span>testo in chiaro nell’applicazione</span></div>
-      <div class="cs-step-key"><b>2 · 🔑 Il driver la cifra</b><span>AES-256 con la chiave dati, prima di spedirla</span></div>
-      <div class="cs-step-db"><b>3 · Atlas salva il cifrato</b><span>disco, repliche, backup: solo byte illeggibili</span></div>
-      <div class="cs-step-key"><b>4 · 🔑 L’app la decifra</b><span>quando rilegge la sessione, solo dove c’è la chiave</span></div>
+      <div><b>1 · La domanda nasce nell’applicazione</b><span>testo in chiaro nell’applicazione</span></div>
+      <div class="cs-step-key"><b>2 · 🔑 Il driver MongoDB cifra il campo</b><span>AES-256 con la chiave dati, prima di spedirla</span></div>
+      <div class="cs-step-db"><b>3 · MongoDB conserva il valore cifrato</b><span>disco, repliche, backup: solo byte illeggibili</span></div>
+      <div class="cs-step-key"><b>4 · 🔑 L’applicazione autorizzata lo decifra</b><span>quando rilegge la sessione, solo dove c’è la chiave</span></div>
     </div>
     <div class="cs-compare">
       <div class="cs-col cs-atlas">
-        <div class="cs-head">🔒 Il documento in Atlas</div>
+        <div class="cs-head">🔒 Il documento in MongoDB</div>
         <pre class="cs-json">${doc(stored)}</pre>
         <p class="cs-note">${atlasNote}</p>
       </div>
@@ -345,61 +389,68 @@ ${fieldLine}<span class="j-p">}</span>`;
     </div>
     <p class="small muted cs-foot">Sessione del ${esc(fmtDate(v.created_at))}. Algoritmo casuale: la stessa domanda dà ogni volta un cifrato diverso.
       La chiave dati <code>${esc(v.key_alt_name)}</code> sta nel key vault <code>${esc(v.key_vault)}</code>, a sua volta cifrata con la chiave master,
-      che Atlas non ha. Titolo, date e contatori restano in chiaro: servono per elenchi e filtri e non sono sensibili.</p>`;
+      che il database non ha. Titolo, date e contatori restano in chiaro: servono per elenchi e filtri e non sono sensibili.</p>`;
 }
 
 // ─── Pagina: Ricerca agentica ──────────────────────────────────────────
 pages.agente = async (main) => {
   main.append(h(`<div><h1>Ricerca agentica</h1>
-    <p class="muted">L’agente cerca, controlla che le prove coprano ogni dato richiesto, cerca di nuovo ciò che manca e ti chiede quando i documenti danno valori diversi. Ogni passo è salvato in MongoDB.</p></div>`));
+    <p class="muted">Non sempre una sola ricerca basta per rispondere correttamente. A differenza di un RAG tradizionale, la ricerca agentica introduce una fase decisionale: l’agente analizza la domanda, recupera le informazioni con MongoDB e valuta se le evidenze coprono ciò che è stato chiesto.</p>
+    <p class="muted">Se manca un dato può fare ricerche mirate, entro il limite configurato; se trova valori diversi per periodi diversi chiede un chiarimento. Poi genera la risposta e dichiara ciò che non è riuscito a trovare. MongoDB conserva la memoria delle conversazioni, le fonti recuperate e gli eventi del processo: ogni esecuzione è osservabile e ricostruibile.</p></div>`));
   const bar = h(`<div class="row" style="margin-bottom:12px">
-      <label style="margin:0">Sessione</label>
+      <label style="margin:0">Sessione di conversazione</label>
       <select id="session" style="max-width:320px"></select>
       <button id="new-session">＋ Nuova sessione</button>
-      <button id="show-protection" title="Lo stesso documento visto dall’applicazione e da Atlas">🔒 Come lo vede Atlas</button>
       <span class="spacer"></span>
-      <select id="runs" style="max-width:300px"><option value="">Ricerche di questa sessione</option></select>
+      <select id="runs" style="max-width:300px"><option value="">Domande della sessione</option></select>
     </div>`);
   main.append(bar);
   const box = questionBox({
     placeholder: "Fai una domanda sui documenti… (⌘↵ per avviare)",
     button: "Avvia la ricerca agentica",
     onSubmit: (q) => runAgent(main, { question: q }),
+    settingsTitle: "Configurazione dell’agente",
     settingsHtml: `
-      <div><label>Candidati per ricerca</label><input type="number" id="s-topk" value="20" min="5" max="100"></div>
-      <div><label>Fonti per la risposta</label><input type="number" id="s-topn" value="8" min="1" max="20"></div>
-      <div><label>Ricerche aggiuntive</label><input type="number" id="s-retries" value="1" min="0" max="2"></div>
-      <div style="grid-column:1/-1"><label>Indicazioni per ordinare le fonti (facoltative)</label><input type="text" id="s-instr" placeholder="Es. privilegia il rendiconto finanziario"></div>`,
+      <div><label>Passaggi recuperati per ricerca</label><input type="number" id="s-topk" value="20" min="5" max="100"></div>
+      <div><label>Passaggi forniti al modello</label><input type="number" id="s-topn" value="8" min="1" max="20"></div>
+      <div><label>Ricerche supplementari consentite</label><input type="number" id="s-retries" value="5" min="0" max="5"></div>
+      <div style="grid-column:1/-1"><label>Istruzioni per il reranking (facoltative)</label><input type="text" id="s-instr" placeholder="Es. privilegia il rendiconto finanziario"></div>
+      <div class="small muted settings-help" style="grid-column:1/-1"><p>Puoi controllare quanti passaggi recuperare, quanti fornire al modello e quante ricerche supplementari consentire quando le evidenze iniziali non bastano: è un limite massimo, non il numero di ricerche che l’agente farà per forza. Le istruzioni di reranking orientano la selezione delle fonti verso contenuti specifici, come rendiconti finanziari, tabelle o sezioni rilevanti.</p></div>`,
   });
   main.append(box);
-  main.append(h(`<div id="protection" class="card cs-card" hidden></div>`));
   main.append(h(`<div id="live"></div>`));
   main.append(h(`<div id="result"></div>`));
+  // Dopo la risposta: la prima domanda della sessione è appena stata salvata cifrata.
+  const protRow = h(`<div class="row" id="prot-row" style="margin-top:14px" hidden>
+      <button id="show-protection" title="Lo stesso documento visto dall’applicazione e dal database">🔒 Come MongoDB conserva i dati</button></div>`);
+  main.append(protRow);
+  main.append(h(`<div id="protection" class="card cs-card" hidden></div>`));
   await loadSessions(main);
   $("#new-session", bar).onclick = async () => {
     const s = await sendJSON("/api/sessions", {});
     state.sessionId = s.id;
-    $("#live", main).innerHTML = ""; $("#result", main).innerHTML = ""; $("#protection", main).hidden = true;
+    $("#live", main).innerHTML = ""; $("#result", main).innerHTML = ""; $("#protection", main).hidden = true; protRow.hidden = true;
     await loadSessions(main);
   };
   $("#session", bar).onchange = async (e) => {
     state.sessionId = e.target.value;
-    $("#live", main).innerHTML = ""; $("#result", main).innerHTML = ""; $("#protection", main).hidden = true;
+    $("#live", main).innerHTML = ""; $("#result", main).innerHTML = ""; $("#protection", main).hidden = true; protRow.hidden = true;
     await loadRuns(main, true);
   };
   $("#runs", bar).onchange = (e) => { if (e.target.value) showRun(main, e.target.value); };
-  $("#show-protection", bar).onclick = () => toggleProtection(main);
+  $("#show-protection", protRow).onclick = () => toggleProtection(main);
 };
 
 async function toggleProtection(main, refresh = false) {
   const panel = $("#protection", main);
   if (!refresh && !panel.hidden) { panel.hidden = true; return; }
   panel.hidden = false;
-  panel.innerHTML = `<p class="muted">Lettura del documento da Atlas…</p>`;
+  panel.innerHTML = `<p class="muted">Lettura del documento dal database…</p>`;
   try {
     const v = await getJSON(`/api/sessions/${state.sessionId}/protection`);
-    const head = `<div class="row"><h3 style="margin:0">La prima domanda è cifrata prima di arrivare in Atlas</h3><span class="spacer"></span>
-      <button class="small" id="close-protection">Chiudi</button></div>`;
+    const head = `<div class="row"><h3 style="margin:0">La memoria dell’agente: dati sensibili protetti con CSFLE</h3><span class="spacer"></span>
+      <button class="small" id="close-protection">Chiudi</button></div>
+      <p class="muted small" style="margin:6px 0 10px">La memoria conversazionale può contenere informazioni sensibili da proteggere anche dentro il database. In questa demo l’applicazione cifra con la Client-Side Field Level Encryption (CSFLE) il campo della prima domanda della sessione, prima di inviarlo a MongoDB: MongoDB conserva e replica solo il valore cifrato, e soltanto un’applicazione con le chiavi può decifrarlo. Gli altri campi (identificativi, date, contatori) restano leggibili per le normali operazioni.</p>`;
     panel.innerHTML = head + (v.has_question ? protectionCompare(v)
       : `<p class="muted">Questa sessione non ha ancora domande. Fai una domanda: appena l’agente risponde, la prima domanda viene salvata cifrata e qui vedi il confronto.</p>`);
     $("#close-protection", panel).onclick = () => { panel.hidden = true; };
@@ -428,15 +479,15 @@ async function refreshSessionList(main) {
 async function loadRuns(main, showLatest = false) {
   const runs = await getJSON(`/api/sessions/${state.sessionId}/runs`);
   const sel = $("#runs", main);
-  sel.innerHTML = `<option value="">Ricerche di questa sessione (${runs.length})</option>` +
-    runs.map((r) => `<option value="${esc(r.id)}">${esc((r.created_at || "").slice(11, 16))} · ${esc((r.question || "").slice(0, 70))}</option>`).join("");
+  sel.innerHTML = `<option value="">Domande della sessione (${runs.length})</option>` +
+    runs.map((r) => `<option value="${esc(r.id)}">${esc(fmtDate(r.created_at).slice(-5))} · ${esc((r.question || "").slice(0, 70))}</option>`).join("");
   if (showLatest && runs.length && !state.busy) await showRun(main, runs[0].id);
 }
 
 const STEP_LABELS = {
-  start: "Interpreta la domanda", plan: "Cerca nei documenti con Atlas", retrieval: "Controlla le prove",
-  agent_rank_fusion: "Controlla le prove", grading: "Decide il prossimo passo", rewrite: "Ricerca mirata in Atlas",
-  generating: "Scrive la risposta citando le fonti",
+  start: "Interpreta la domanda", plan: "Cerca nei documenti con MongoDB", retrieval: "Valuta le evidenze",
+  agent_rank_fusion: "Valuta le evidenze", grading: "Decide il prossimo passo", rewrite: "Ricerca mirata in MongoDB",
+  generating: "Genera la risposta con citazioni",
 };
 
 function timelineRow(icon, title, detail = "", ms = null) {
@@ -447,33 +498,39 @@ function eventRow(ev) {
   const top3 = (refs) => (refs || []).slice(0, 3).map((r) => `${shortFile(r.filename)} ${pageLabel(r.page)}`).join(" · ");
   switch (ev.type) {
     case "plan":
-      if (ev.planner_skipped) return timelineRow("🧭", "Domanda usata così com’è", ev.parent_run_id ? "Risposta alla tua scelta: nessun riferimento da risolvere" : "Prima domanda della sessione: nessun riferimento da risolvere");
+      if (ev.sub_queries?.length > 1) return timelineRow("🧭", `Divide la domanda in ${ev.sub_queries.length} ricerche`,
+        ev.sub_queries.map((q, i) => `${i + 1}. ${q}`).join("  ·  "), ev.duration_ms);
+      if (ev.planner_skipped) return timelineRow("🧭", "Interpretazione della domanda", ev.parent_run_id ? "Risposta alla tua scelta: non serve recuperare altro dalla conversazione." : "Prima domanda della sessione: non è necessario recuperare informazioni dalle interazioni precedenti.");
       if (ev.memory?.turns) return timelineRow("🍃", `Ha letto la conversazione da MongoDB: ${ev.memory.turns} ${ev.memory.turns === 1 ? "domanda precedente" : "domande precedenti"}`,
         `Ha trasformato la domanda in «${ev.planned_query}»`, ev.duration_ms);
       return timelineRow("🧭", "Ha interpretato la domanda", `«${ev.planned_query}»`, ev.duration_ms);
     case "retrieval":
-      return timelineRow("🔍", ev.iteration > 1 ? `Ricerca mirata: «${ev.search_query}»` : `Ricerca ibrida in Atlas · ${ev.candidate_count} candidati`,
-        "In cima: " + top3(ev.ranked_sources), ev.duration_ms);
+      return timelineRow("🔍", ev.parts > 1 ? `Ricerca ${ev.part}/${ev.parts}${ev.iteration > 1 ? " mirata" : ""}: «${ev.search_query}» · ${ev.candidate_count} passaggi`
+        : ev.iteration > 1 ? `Ricerca mirata: «${ev.search_query}»` : `Ricerca ibrida e reranking in MongoDB · ${ev.candidate_count} passaggi recuperati`,
+        "Passaggi meglio classificati: " + top3(ev.ranked_sources), ev.duration_ms);
     case "agent_rank_fusion":
-      return timelineRow("🔗", `Unisce le ricerche: ${ev.unique_candidates} passaggi distinti`, "Riordinati rispetto alla domanda completa", ev.duration_ms);
+      return timelineRow("🔗", `Unisce le ricerche: ${ev.unique_candidates} passaggi distinti`, ev.balanced ? "Alternati: ogni parte della domanda porta le sue fonti" : "Riordinati rispetto alla domanda completa", ev.duration_ms);
     case "grading": {
       const els = ev.elements || [];
       const found = els.filter((e) => e.found);
       const missing = els.filter((e) => !e.found).map((e) => e.element);
       if (ev.evaluated === false) return timelineRow("⚠️", "Valutazione non riuscita", ev.failure_detail || ev.failure_reason || "", ev.duration_ms);
       return timelineRow(ev.sufficient ? "✅" : "⚠️",
-        ev.sufficient ? `Prove sufficienti: ${found.length} dati su ${els.length || found.length}` : `Manca: ${missing.join("; ") || "qualcosa"}`,
+        ev.sufficient ? `Evidenze ritenute sufficienti · copertura ${found.length}/${els.length || found.length}` : `Copertura incompleta ${found.length}/${els.length} · manca: ${missing.join("; ") || "qualcosa"}`,
         found.map((e) => `${e.element}${e.value ? " = " + e.value : ""}`).join(" · "), ev.duration_ms);
     }
     case "clarification":
-      return timelineRow("❓", "Valori diversi in anni diversi: ti chiede quale anno", (ev.options || []).map((o) => o.year).join(", "));
+      return timelineRow("❓", "Valori diversi in periodi diversi: chiede quale anno", (ev.options || []).map((o) => o.year).join(", "));
     case "decision":
-      if (ev.reason === "off_topic") return timelineRow("🚫", "Fuori tema: si ferma senza chiamare il modello", `miglior passaggio ${Number(ev.top_rerank).toFixed(3)} < soglia ${ev.threshold}`);
+      if (ev.reason === "off_topic") return timelineRow("🚫", "Sotto la soglia di pertinenza: si ferma senza chiamare il modello", `miglior passaggio ${Number(ev.top_rerank).toFixed(3)} < soglia ${ev.threshold}`);
       if (ev.reason === "no_results") return timelineRow("🚫", "Nessun passaggio trovato");
+      if (ev.reason === "no_new_passages") return timelineRow("⏹", "La nuova ricerca non porta passaggi nuovi: si ferma", "rivalutare gli stessi passaggi darebbe lo stesso esito");
+      if (ev.reason === "not_in_documents") return timelineRow("⏹", "Nessun elemento trovato in due ricerche diverse: si ferma", "i documenti caricati non sembrano contenere la risposta");
       return null;
     case "answer":
       if (ev.status === "needs_input") return null;
-      return timelineRow(ev.status === "blocked" ? "🚫" : "💬", ev.status === "blocked" ? "Risposta non pubblicata" : `Risposta scritta con ${ev.sources?.length || 0} fonti`, "", ev.duration_ms);
+      if (ev.diagnostics?.block_reason === "not_in_documents") return timelineRow("🚫", "Nessuna risposta: non inventa e non cita fonti che non c’entrano", ev.stop_reason || "");
+      return timelineRow(ev.status === "blocked" ? "🚫" : "💬", ev.status === "blocked" ? "Risposta non pubblicata" : `Risposta generata utilizzando ${ev.sources?.length || 0} passaggi selezionati`, "", ev.duration_ms);
     default: return null;
   }
 }
@@ -484,7 +541,9 @@ async function runAgent(main, { question, clarification = null }) {
   const live = $("#live", main), result = $("#result", main);
   result.innerHTML = "";
   live.innerHTML = "";
-  const card = h(`<div class="card live"><div class="row"><b>L’agente al lavoro</b><span class="spacer"></span><span class="muted small" id="live-clock"></span></div>
+  if ($("#prot-row", main)) $("#prot-row", main).hidden = true;
+  const card = h(`<div class="card live"><div class="row"><b>Il percorso dell’agente: ricerca, valutazione e risposta</b><span class="spacer"></span><span class="muted small" id="live-clock"></span></div>
+    <p class="muted small" style="margin:4px 0 8px">Ogni fase è un’azione eseguita davvero: come l’agente ha interpretato la domanda, cosa ha recuperato, come ha valutato la copertura delle evidenze e quando ha deciso di rispondere. Tempi, risultati e decisioni sono registrati in MongoDB.</p>
       <div class="question-echo">${esc(question)}</div><div class="timeline" id="tl"></div></div>`);
   live.append(card);
   card.scrollIntoView({ behavior: "smooth", block: "start" });
@@ -500,8 +559,8 @@ async function runAgent(main, { question, clarification = null }) {
   let runId = null, failed = null;
   try {
     await stream("/api/agent", {
-      session_id: state.sessionId, question, clarification,
-      top_k: s("#s-topk"), top_n: s("#s-topn"), retries: Number($("#s-retries", main)?.value ?? 1),
+      session_id: state.sessionId, question, clarification, mode: state.info?.active_mode,
+      top_k: s("#s-topk"), top_n: s("#s-topn"), retries: Number($("#s-retries", main)?.value ?? 5),
       rerank_instructions: $("#s-instr", main)?.value || "",
     }, (ev) => {
       if (ev.type === "session") { state.sessionId = ev.session_id; return; }
@@ -525,6 +584,8 @@ async function runAgent(main, { question, clarification = null }) {
 
 async function showRun(main, runId, { fromLive = false } = {}) {
   const view = await getJSON(`/api/runs/${runId}`);
+  const protRow = $("#prot-row", main);
+  if (protRow) protRow.hidden = false;
   state.runId = runId;
   const result = $("#result", main);
   result.innerHTML = "";
@@ -558,14 +619,14 @@ async function showRun(main, runId, { fromLive = false } = {}) {
       <div class="answer-head"><h3 style="margin:0">Risposta</h3>${verdictBadge(v.kind, v.label)}</div>
       <div class="answer">${renderAnswer(view.answer)}</div>
       ${v.notes?.length ? `<p class="notes">${esc(v.notes.join(" · "))}</p>` : ""}
-      ${cited.length ? `<div class="sources"><div class="muted small">Fonti citate</div>${cited.map((n) => sourceLine(n, view.sources[n - 1], matches[n] || [])).join("")}</div>` : ""}
-      <details><summary>Come è stata verificata${others.length ? ` · altre ${others.length} fonti esaminate` : ""}</summary>
+      ${cited.length ? `<div class="sources"><div class="muted small">Fonti citate nella risposta</div>${cited.map((n) => sourceLine(n, view.sources[n - 1], matches[n] || [])).join("")}</div>` : ""}
+      <details><summary>Controllo dei valori e passaggi non citati</summary>
         ${citationRows(v.rows, view.sources)}
-        <p class="muted small">Controllo meccanico: dice se i numeri vengono dai documenti, non se il modello li ha interpretati bene.</p>
-        ${others.length ? `<div class="muted small">Fonti date al modello e non citate</div>${others.map((n) => sourceLine(n, view.sources[n - 1])).join("")}` : ""}
+        <p class="muted small">Il controllo confronta i valori numerici della risposta con quelli dei passaggi citati. Una corrispondenza conferma che il numero compare nella fonte, ma non garantisce da sola la corretta interpretazione del contesto, delle colonne di una tabella, dell’anno o dell’unità di misura.</p>
+        ${others.length ? `<div class="muted small">Passaggi forniti al modello ma non citati</div>${others.map((n) => sourceLine(n, view.sources[n - 1])).join("")}` : ""}
       </details>`;
   } else if (view.status === "blocked") {
-    card.innerHTML = `<div class="question-echo">${esc(run.question)}</div><div class="answer-head"><h3 style="margin:0">Nessuna risposta</h3>${verdictBadge("absent", "Fuori dai documenti")}</div><p>${esc(view.answer || "")}</p>`;
+    card.innerHTML = `<div class="question-echo">${esc(run.question)}</div><div class="answer-head"><h3 style="margin:0">Nessuna risposta</h3>${verdictBadge("absent", "Nessuna risposta dai passaggi trovati")}</div><p>${esc(view.answer || "")}</p>`;
   } else if (view.status === "failed") {
     if (fromLive) { card.remove(); result.append(techDetails(run)); return; }
     const err = (run.events || []).filter((e) => e.type === "error").pop();
@@ -603,10 +664,12 @@ function valueCard(v) {
         </div>
         <div class="muted small">Senza la sessione salvata, «${esc(m.question)}» non direbbe all’agente di quale azienda e di quale dato stai parlando. Ogni domanda e risposta resta nel documento della sessione: riaprendola domani, il contesto c’è ancora.</div>
       </div>` : "";
-    el.innerHTML = `<div class="value-head"><span class="value-title">✨ Cosa ha fatto l’agente in più: ${esc(lowerFirst(v.title))}</span><button class="small" id="replay">↻ Riproduci</button></div>${mem}
+    el.innerHTML = `<div class="value-head"><span class="value-title">✨ Cosa cambia con un RAG agentico?</span><button class="small" id="replay">↻ Riproduci</button></div>
+      <p class="muted small" style="margin:2px 0 6px">La differenza non è solo nella ricerca, ma nella capacità di prendere decisioni durante il processo. Un RAG tradizionale recupera i passaggi più pertinenti e li fornisce al modello. Un RAG agentico aggiunge una fase di valutazione: controlla se le informazioni recuperate coprono gli elementi richiesti e, quando serve, cerca ancora o chiede un chiarimento prima di rispondere.</p>
+      <p class="small" style="margin:0 0 10px"><b>In questa esecuzione:</b> ${esc(lowerFirst(v.title))}.</p>${mem}
       <div class="value-cols">
-        <div class="value-col"><div class="label">🔎 Ricerca standard · una ricerca, risponde subito</div>${v.standard_chips === false ? "" : chips(v.standard_found, false, 0)}<div class="verdict">${esc(v.standard)}</div></div>
-        <div class="value-col agent"><div class="label">🧭 Agente · controlla prima di rispondere</div>${steps}${chips(v.agent_found, true, end)}<div class="verdict fade" style="animation-delay:${end + 0.4}s">${esc(v.agent)}</div></div>
+        <div class="value-col"><div class="label">🔎 Ricerca standard · recupera e risponde</div><p class="muted small vdesc">MongoDB seleziona i passaggi con ricerca ibrida e reranking; il modello genera una risposta con citazioni, senza una fase che stabilisca prima se le evidenze bastano.</p>${v.standard_chips === false ? "" : chips(v.standard_found, false, 0)}<div class="verdict">${esc(v.standard)}</div></div>
+        <div class="value-col agent"><div class="label">🧭 Ricerca agentica · valuta, decide e risponde</div><p class="muted small vdesc">L’agente esamina le evidenze e valuta la copertura della domanda: se bastano risponde, altrimenti può cercare ancora o chiedere un chiarimento. Il percorso decisionale resta in MongoDB.</p>${steps}${chips(v.agent_found, true, end)}<div class="verdict fade" style="animation-delay:${end + 0.4}s">${esc(v.agent)}</div></div>
       </div><div class="muted small" style="margin-top:8px">${esc(v.cost)}</div>`;
     $("#replay", el).onclick = render;
   };
@@ -615,8 +678,8 @@ function valueCard(v) {
 }
 
 function techDetails(run) {
-  const el = h(`<details class="card tech"><summary>Dettagli tecnici: passi, valutazioni, documento in MongoDB</summary>
-      <div class="subtabs"><button data-t="steps" class="active">Passi e tempi</button><button data-t="grades">Valutazioni</button><button data-t="mongo">Documento in MongoDB</button></div>
+  const el = h(`<details class="card tech"><summary>Tracciabilità dell’agente: esecuzione, decisioni e memoria in MongoDB</summary>
+      <div class="subtabs"><button data-t="steps" class="active">Fasi e tempi</button><button data-t="grades">Valutazione delle evidenze</button><button data-t="mongo">Traccia JSON in MongoDB</button></div>
       <div id="tbody"></div></details>`);
   const events = run.events || [];
   const panes = {
@@ -624,27 +687,27 @@ function techDetails(run) {
       const tl = h(`<div class="timeline"></div>`);
       for (const ev of events) { const r = eventRow(ev); if (r) tl.append(r); }
       const total = events.reduce((a, e) => a + (e.duration_ms || 0), 0);
-      const parts = [["Atlas", "#00684a", events.filter((e) => ["retrieval", "agent_rank_fusion"].includes(e.type))],
-        ["Decisioni dell’agente", "#a79cf0", events.filter((e) => e.type === "grading" || (e.type === "plan" && !e.planner_skipped))],
-        ["Risposta", "#6e5bd6", events.filter((e) => e.type === "answer")]].map(([n, c, es]) => [n, c, es.reduce((a, e) => a + (e.duration_ms || 0), 0)]);
+      const parts = [["Ricerca in MongoDB", "#00684a", events.filter((e) => ["retrieval", "agent_rank_fusion"].includes(e.type))],
+        ["Valutazione delle evidenze", "#a79cf0", events.filter((e) => e.type === "grading" || (e.type === "plan" && !e.planner_skipped))],
+        ["Generazione della risposta", "#6e5bd6", events.filter((e) => e.type === "answer")]].map(([n, c, es]) => [n, c, es.reduce((a, e) => a + (e.duration_ms || 0), 0)]);
       const bar = total ? `<div class="timebar">${parts.map(([, c, ms]) => ms ? `<span style="width:${(ms / total) * 100}%;background:${c}"></span>` : "").join("")}</div>
         <div class="legend">${parts.filter((p) => p[2]).map(([n, c, ms]) => `<span><i style="background:${c}"></i>${esc(n)} ${fmtMs(ms)}</span>`).join("")}</div>` : "";
-      const wrap = h(`<div></div>`); wrap.append(tl); wrap.insertAdjacentHTML("beforeend", bar);
+      const wrap = h(`<div><p class="muted small">Ogni esecuzione è divisa in fasi osservabili, con i loro tempi: preparazione della domanda, ricerca in MongoDB, valutazione delle evidenze e generazione della risposta. Così si distingue il tempo del database da quello del modello.</p></div>`); wrap.append(tl); wrap.insertAdjacentHTML("beforeend", bar);
       const plan = events.find((e) => e.type === "plan");
       if (plan?.database_search) wrap.insertAdjacentHTML("beforeend", `<p class="muted small">Collection ${esc(plan.database_search.database)}.${esc(plan.database_search.collection)} · indice testuale ${esc(plan.database_search.text_index)} · ${(plan.database_search.vector_indexes || []).map((v) => `vettoriale ${esc(v.index)} (${esc(v.mode)})`).join(" · ")}</p>`);
-      for (const r of events.filter((e) => e.type === "retrieval")) wrap.insertAdjacentHTML("beforeend", `<div class="muted small">Ricerca ${r.iteration}: query completa</div><pre>${esc(r.search_query)}</pre>`);
+      for (const r of events.filter((e) => e.type === "retrieval")) wrap.insertAdjacentHTML("beforeend", `<div class="muted small">Ricerca ${r.iteration}${r.parts > 1 ? `.${r.part}` : ""} · ${r.iteration === 1 ? (r.parts > 1 ? `parte ${r.part} di ${r.parts}` : "domanda originale") : "ricerca mirata"}</div><pre>${esc(r.search_query)}</pre>`);
       return wrap;
     },
     grades: () => {
-      const wrap = h(`<div></div>`);
+      const wrap = h(`<div><p class="muted small">Prima di rispondere, l’agente confronta gli elementi richiesti dalla domanda con le informazioni dei passaggi recuperati. Per ogni valutazione restano l’esito, la motivazione e le fonti esaminate: se la copertura basta si passa alla risposta, altrimenti l’agente può fare un’altra ricerca, entro i limiti configurati.</p></div>`);
       for (const g of events.filter((e) => e.type === "grading")) {
-        wrap.insertAdjacentHTML("beforeend", `<h4>Valutazione ${g.iteration}</h4><p class="small">${esc(g.comment || "")}</p>` +
+        wrap.insertAdjacentHTML("beforeend", `<h4>Valutazione ${g.iteration} · controllo della copertura</h4><p class="small">${esc(g.comment || "")}</p>` +
           (g.elements || []).map((e) => `<div class="small">${e.found ? "✓" : e.claimed_found ? "≈" : "✗"} ${esc(e.element)}${e.value ? ` = <b>${esc(e.value)}</b>` : ""}${e.ref ? ` · passaggio #${e.ref}` : ""}</div>`).join("") +
           (g.evaluated_source_refs || []).map((r, i) => `<div class="passage"><b>#${i + 1}</b> ${esc(shortFile(r.filename))} · ${esc(pageLabel(r.page))}<pre>${esc(r.excerpt || "")}</pre></div>`).join(""));
       }
-      return wrap.childElementCount ? wrap : h(`<p class="muted">Nessuna valutazione registrata.</p>`);
+      return wrap.childElementCount > 1 ? wrap : h(`<p class="muted">Nessuna valutazione registrata.</p>`);
     },
-    mongo: () => h(`<div><p class="muted small">Il documento della collection <code>agentic_runs</code>: stato e decisioni osservabili dell’agente, non il ragionamento interno del modello.</p><pre>${esc(JSON.stringify(run, null, 2))}</pre></div>`),
+    mongo: () => h(`<div><p class="muted small">Ogni esecuzione dell’agente è un documento JSON nella collection <code>agentic_runs</code>: stato del processo, eventi, ricerche, evidenze recuperate, valutazioni e risposta. MongoDB diventa così anche il registro del workflow agentico: si ispezionano e ricostruiscono le operazioni eseguite, senza pretendere di esporre il ragionamento interno del modello.</p><pre>${esc(JSON.stringify(run, null, 2))}</pre></div>`),
   };
   const body = $("#tbody", el);
   const show = (k) => { $$(".subtabs button", el).forEach((b) => b.classList.toggle("active", b.dataset.t === k)); body.innerHTML = ""; body.append(panes[k]()); };
@@ -655,22 +718,29 @@ function techDetails(run) {
 
 // ─── Pagina: Query ─────────────────────────────────────────────────────
 pages.query = (main) => {
-  main.append(h(`<div><h1>Query</h1><p class="muted">La RAG classica: una ricerca ibrida in Atlas, il reranking e una sola risposta del modello. Segui ogni passo della pipeline.</p></div>`));
+  main.append(h(`<div><h1>Query</h1><p class="muted">Dalla domanda alla risposta, tutto parte da MongoDB. MongoDB combina ricerca testuale e semantica, fonde le classifiche con <code>$rankFusion</code> e usa <code>$rerank</code> con Voyage AI per individuare i passaggi più pertinenti. Il modello riceve queste evidenze e genera una risposta con riferimenti alle fonti.</p><p class="muted">Ogni fase è esplorabile: cosa hanno trovato i singoli motori, come sono stati combinati i risultati, perché alcuni passaggi sono stati promossi dal reranking e quale pipeline MQL è stata eseguita.</p></div>`));
   const box = questionBox({
     placeholder: "Fai una domanda sui documenti… (⌘↵ per avviare)", button: "Esegui",
     onSubmit: (q) => runQuery(main, q),
+    settingsTitle: "Personalizza la ricerca",
     settingsHtml: `
-      <div><label>Candidati per motore (Top-K)</label><input type="number" id="q-topk" value="50" min="5" max="100"></div>
-      <div><label>Passaggi al modello (Top-N)</label><input type="number" id="q-topn" value="8" min="1" max="20"></div>
-      <div><label>Soglia fuori tema</label><input type="number" id="q-thr" value="0.15" step="0.05" min="0" max="1"></div>
-      <div><label><input type="checkbox" id="q-fuzzy"> Fuzzy sul ramo testuale</label></div>
-      <div style="grid-column:1/-1"><label>Istruzioni al reranker (facoltative)</label><input type="text" id="q-instr" placeholder="Es. privilegia le tabelle con i totali"></div>`,
+      <div><label>Risultati recuperati per motore (Top-K)</label><input type="number" id="q-topk" value="50" min="5" max="100"></div>
+      <div><label>Passaggi forniti al modello (Top-N)</label><input type="number" id="q-topn" value="8" min="1" max="20"></div>
+      <div><label>Soglia minima di pertinenza</label><input type="number" id="q-thr" value="0.15" step="0.05" min="0" max="1"></div>
+      <div><label><input type="checkbox" id="q-fuzzy"> Ricerca testuale con tolleranza agli errori</label></div>
+      <div style="grid-column:1/-1"><label>Istruzioni aggiuntive per il reranking</label><input type="text" id="q-instr" placeholder="Es. privilegia le tabelle con i totali"></div>
+      <div class="small muted settings-help" style="grid-column:1/-1">
+        <p>La ricerca si regola senza modificare la pipeline applicativa.</p>
+        <p><b>Top-K</b> determina quanti candidati recuperare da ciascun motore. <b>Top-N</b> stabilisce quanti passaggi, dopo fusione e reranking, vengono forniti al modello per generare la risposta.</p>
+        <p>La <b>soglia minima di pertinenza</b> usa il punteggio del reranker (da 0 a 1) del passaggio meglio classificato: se è inferiore al valore impostato, l’applicazione non interroga il modello. È una decisione sul punteggio, non una verifica definitiva che la domanda sia fuori dal dominio dei documenti.</p>
+        <p>La <b>ricerca con tolleranza agli errori</b> (fuzzy) consente al motore testuale di accettare piccole variazioni ed errori ortografici. Le <b>istruzioni aggiuntive</b> orientano il reranking verso specifiche caratteristiche dei contenuti.</p>
+      </div>`,
   });
   main.append(box);
   main.append(h(`<div class="pipeline" id="pipe">
-      <div class="pstep" data-s="embedding"><div class="k">1 · Domanda</div><div class="v">Embedding</div><div class="ms"></div></div>
-      <div class="pstep" data-s="atlas"><div class="k">2 · MongoDB Atlas</div><div class="v">$search + $vectorSearch → $rankFusion → $rerank</div><div class="ms"></div></div>
-      <div class="pstep" data-s="generation"><div class="k">3 · Modello</div><div class="v">Risposta con citazioni</div><div class="ms"></div></div>
+      <div class="pstep" data-s="embedding"><div class="k">1 · Preparazione della domanda</div><div class="v">Generazione della rappresentazione semantica</div><div class="ms"></div></div>
+      <div class="pstep" data-s="atlas"><div class="k">2 · Ricerca e ranking in MongoDB</div><div class="v">Ricerca ibrida, fusione e reranking</div><div class="ms"></div></div>
+      <div class="pstep" data-s="generation"><div class="k">3 · Generazione della risposta</div><div class="v">Modello LLM e citazioni delle fonti</div><div class="ms"></div></div>
     </div>`));
   main.append(h(`<div id="qresult"></div>`));
 };
@@ -681,7 +751,7 @@ async function runQuery(main, question) {
   const out = $("#qresult", main); out.innerHTML = "";
   const steps = $$(".pstep", main); steps.forEach((s) => { s.className = "pstep"; $(".ms", s).textContent = ""; });
   const stop = elapsedTimer($("#elapsed", main));
-  const body = { question, top_k: Number($("#q-topk", main).value), top_n: Number($("#q-topn", main).value),
+  const body = { question, mode: state.info?.active_mode, top_k: Number($("#q-topk", main).value), top_n: Number($("#q-topn", main).value),
     threshold: Number($("#q-thr", main).value), fuzzy: $("#q-fuzzy", main).checked, rerank_instructions: $("#q-instr", main).value };
   let retrieval = null, result = null, failed = null;
   try {
@@ -711,29 +781,29 @@ function renderQueryResult(out, r, body) {
   if (r.status === "failed") {
     card.innerHTML = `<div class="answer-head"><h3 style="margin:0">Nessuna risposta</h3>${verdictBadge("risk", "Il modello non ha risposto")}</div>
       ${errorBox(r.message || "Errore del modello").outerHTML}
-      <p class="muted small">La ricerca in Atlas è andata a buon fine: sotto vedi cosa ha trovato e in che ordine.</p>`;
+      <p class="muted small">La ricerca in MongoDB è andata a buon fine: sotto vedi cosa ha trovato e in che ordine.</p>`;
   } else if (r.status === "off_topic") {
-    card.innerHTML = `<div class="answer-head"><h3 style="margin:0">Nessuna risposta</h3>${verdictBadge("absent", "Fuori tema")}</div><p>${esc(r.message)}</p>`;
+    card.innerHTML = `<div class="answer-head"><h3 style="margin:0">Nessuna risposta</h3>${verdictBadge("absent", "Sotto la soglia di pertinenza")}</div><p>${esc(r.message)}</p>`;
   } else if (r.status === "blocked") {
     card.innerHTML = `${errorBox("Risposta non pubblicata: " + r.message).outerHTML}`;
   } else {
     const s = r.citation_summary || {};
     const checked = (r.citation_check || []).length - (s.uncited || 0);
-    const ok = (s.found || 0) + (s.rounded || 0);
+    const ok = (s.found || 0) + (s.rounded || 0) + (s.computed || 0);
     const kind = s.not_found || s.uncited ? "risk" : "ok";
-    const label = !(r.citation_check || []).length ? "Nessun numero da verificare" : kind === "ok" ? `Verificata: ${ok} numeri su ${checked} nelle fonti` : "Da verificare";
+    const label = !(r.citation_check || []).length ? "Nessun numero da verificare" : kind === "ok" ? "Riscontri numerici individuati nelle fonti" : "Da verificare";
     const cited = (r.sources || []).filter((x) => x.cited);
     const matches = {};
     for (const row of r.citation_check || []) if (row.excerpt && row.ref) (matches[row.ref] ||= []).push(row.excerpt.match);
     card.innerHTML = `<div class="answer-head"><h3 style="margin:0">Risposta</h3>${verdictBadge(kind, label)}</div>
       <div class="answer">${renderAnswer(r.answer)}</div>
       ${r.message ? `<p class="notes">${esc(r.message)}</p>` : ""}
-      ${cited.length ? `<div class="sources"><div class="muted small">Fonti citate</div>${cited.map((x) => sourceLine(x.number, x, matches[x.number] || [])).join("")}</div>` : ""}
-      <details><summary>Come è stata verificata</summary>${citationRows(r.citation_check, r.sources)}</details>
+      ${cited.length ? `<div class="sources"><div class="muted small">Fonti utilizzate nella risposta</div>${cited.map((x) => sourceLine(x.number, x, matches[x.number] || [])).join("")}</div>` : ""}
+      <details><summary>Riscontri numerici nelle fonti</summary>${citationRows(r.citation_check, r.sources)}</details>
       <p class="muted small">Modello ${esc(r.model || "")} · ${r.usage?.input_tokens ?? "?"} token in · ${r.usage?.output_tokens ?? "?"} out</p>`;
   }
-  // Come ha lavorato Atlas
-  const how = h(`<div class="card" style="margin-top:18px"><h3>Come ha lavorato Atlas</h3>
+  // Dentro la ricerca
+  const how = h(`<div class="card" style="margin-top:18px"><h3>Dentro la ricerca: come MongoDB seleziona le fonti</h3>
       <div class="subtabs"><button data-t="fusion" class="active">Fusione dei motori</button><button data-t="rerank">Reranking</button><button data-t="compare">Motori separati</button><button data-t="mql">Pipeline MQL</button></div>
       <div id="howbody"></div></div>`);
   out.append(how);
@@ -744,29 +814,35 @@ function renderQueryResult(out, r, body) {
   const panes = {
     fusion: () => {
       const single = (r.scope || []).length === 1;
-      const cols = [{ key: "text", title: "Testuale", sub: "BM25 · $search" }].concat((r.scope || []).map((m) => ({ key: `vector_${m}`, title: single ? "Semantica" : m, sub: "$vectorSearch" })));
+      const cols = [{ key: "text", title: "Ricerca testuale", sub: "BM25 · $search" }].concat((r.scope || []).map((m) => ({ key: `vector_${m}`, title: single ? "Ricerca semantica" : m, sub: "$vectorSearch" })));
       const items = (r.fused || []).slice(0, 10).map((p, i) => {
         const ranks = { text: p.branch_ranks.text };
         for (const m of r.scope || []) ranks[`vector_${m}`] = p.branch_ranks[`vector_${m}`] ?? (single ? p.branch_ranks.vector : undefined);
         return { file: p.filename, label: label(p), sub: p.snippet.slice(0, 48), ranks, final: i + 1, cited: citedKeys.has(p.key) };
       });
-      const wrap = h(`<div><p class="small muted">Ogni linea è un passaggio: a sinistra la sua posizione nella ricerca per parole e in quella per significato, a destra la posizione dopo <code>$rankFusion</code>. ${esc(r.weights || "")} ${esc(r.dedup || "")}</p><div></div></div>`);
-      lanes(wrap.lastElementChild, { columns: cols, target: { title: "Classifica fusa", sub: "$rankFusion (RRF)" }, items });
+      const wrap = h(`<div class="how-text"><p><b>Due strategie di ricerca complementari, un’unica classifica.</b></p>
+        <p class="small muted">A sinistra, MongoDB Search (<code>$search</code>) individua i passaggi rilevanti attraverso le parole e i termini presenti nei documenti, con BM25. A destra, MongoDB Vector Search (<code>$vectorSearch</code>) recupera i contenuti semanticamente vicini alla domanda, anche quando usano parole diverse.</p>
+        <p class="small muted">Al centro, <code>$rankFusion</code> combina le due classifiche con la Reciprocal Rank Fusion (RRF): ogni risultato riceve un punteggio basato sulla sua posizione nei rispettivi motori. Il risultato è una classifica unica che sfrutta la precisione della ricerca testuale e la comprensione semantica di quella vettoriale; i passaggi duplicati vengono consolidati prima del reranking. ${esc(r.weights || "")}</p><div></div></div>`);
+      lanes(wrap.lastElementChild, { columns: cols, target: { title: "Risultati combinati", sub: "$rankFusion (RRF)" }, items });
       return wrap;
     },
     rerank: () => {
       const items = (r.reranked_all || []).slice(0, 10).map((p, i) => ({ file: p.filename, label: label(p), sub: `rerank ${p.rerank_score != null ? Number(p.rerank_score).toFixed(3) : "n/d"}`,
         ranks: { rrf: fusedPos[p.key] }, final: i + 1, cited: citedKeys.has(p.key), delta: fusedPos[p.key] ? fusedPos[p.key] - (i + 1) : 0 }));
-      const wrap = h(`<div><p class="small muted">Il reranker Voyage rilegge domanda e passaggio insieme e riordina i candidati della fusione. Solo i primi ${r.top_n} arrivano al modello. Punteggio del primo: ${r.top_score != null ? Number(r.top_score).toFixed(3) : "n/d"} (soglia fuori tema ${r.threshold}).</p><div></div></div>`);
+      const wrap = h(`<div class="how-text"><p><b>La ricerca ibrida individua i candidati; il reranking seleziona quelli davvero più pertinenti alla domanda.</b></p>
+        <p class="small muted">Con lo stage nativo <code>$rerank</code>, MongoDB usa il modello Voyage AI per rivalutare ogni passaggio, considerando insieme il contenuto recuperato e il significato della domanda. Il grafico mostra come cambia la posizione dei passaggi rispetto alla classifica di <code>$rankFusion</code>: un passaggio poco visibile può risalire se contiene informazioni particolarmente rilevanti.</p>
+        <p class="small muted">Solo i passaggi meglio classificati vengono forniti al modello. La linea tratteggiata è il punto di selezione: sopra le evidenze usate, sotto quelle escluse.</p>
+        <p class="small how-values">Passaggi forniti al modello: <b>${r.top_n}</b> · punteggio del primo: <b>${r.top_score != null ? Number(r.top_score).toFixed(3) : "n/d"}</b> · soglia minima di pertinenza: <b>${r.threshold}</b></p><div></div></div>`);
       lanes(wrap.lastElementChild, { columns: [{ key: "rrf", title: "Fusione", sub: "RRF" }], target: { title: "Dopo il reranking", sub: "$rerank · Voyage" }, items, cut: r.top_n });
       return wrap;
     },
     compare: () => {
-      const wrap = h(`<div><p class="small muted">Le classifiche dei due motori presi da soli, con gli stessi filtri: mostrano cosa trova la sola ricerca per parole e cosa la sola ricerca per significato.</p><button id="cmp">Calcola le classifiche separate</button><div id="cmpout"></div></div>`);
+      const wrap = h(`<div class="how-text"><p><b>Cosa troverebbe ciascun motore usato da solo?</b></p>
+        <p class="small muted">Questa vista confronta direttamente i risultati della ricerca testuale (<code>$search</code>, BM25) con quelli della ricerca semantica (<code>$vectorSearch</code>), con gli stessi filtri della domanda corrente. La ricerca testuale è particolarmente efficace sui termini espliciti; quella vettoriale può recuperare contenuti pertinenti anche senza le stesse parole. Viste separate, le due classifiche mostrano il contributo di ciascun motore e il valore della loro combinazione.</p><button id="cmp">Confronta i due motori</button><div id="cmpout"></div></div>`);
       $("#cmp", wrap).onclick = async (e) => {
         e.target.disabled = true; e.target.textContent = "Calcolo…";
         try {
-          const c = await sendJSON("/api/query/compare", { question: r.question, top_k: body.top_k, fuzzy: body.fuzzy });
+          const c = await sendJSON("/api/query/compare", { question: r.question, mode: body.mode, top_k: body.top_k, fuzzy: body.fuzzy });
           const list = (title, xs) => `<div><h4>${esc(title)}</h4><div class="rank-list">${xs.map((p, i) => `<div><b>#${i + 1}</b> ${esc(label(p))} <span class="muted">${esc(p.snippet.slice(0, 80))}</span></div>`).join("")}</div></div>`;
           $("#cmpout", wrap).innerHTML = `<div class="compare-cols">${list("Solo testo · $search", c.text)}${Object.entries(c.vector).map(([m, xs]) => list(`Solo vettori · ${m}`, xs)).join("")}</div>`;
           e.target.remove();
@@ -774,7 +850,9 @@ function renderQueryResult(out, r, body) {
       };
       return wrap;
     },
-    mql: () => h(`<div><p class="small muted">La pipeline inviata ad Atlas, pronta per <code>mongosh</code>.</p><pre>${esc(r.pipeline)}</pre><p class="small muted">Domanda inviata al reranker:</p><pre>${esc(r.rerank_query)}</pre></div>`),
+    mql: () => h(`<div class="how-text"><p><b>Dalla ricerca ibrida al reranking: una sola pipeline MongoDB.</b></p>
+        <p class="small muted">Questa è la pipeline MQL effettivamente eseguita per la domanda corrente. Mostra come MongoDB coordina la ricerca testuale (<code>$search</code>), la ricerca vettoriale (<code>$vectorSearch</code>), la fusione delle classifiche (<code>$rankFusion</code>) e il reranking con Voyage AI (<code>$rerank</code>). Nella stessa aggregazione vengono gestiti filtri, combinazione dei risultati, deduplicazione e ordinamento per pertinenza.</p>
+        <p class="small muted">Non è una rappresentazione teorica: è la query usata dall’applicazione, che puoi esaminare e riprodurre in <code>mongosh</code>.</p><pre>${esc(r.pipeline)}</pre><p class="small muted">Query utilizzata per il reranking:</p><pre>${esc(r.rerank_query)}</pre></div>`),
   };
   const show = (k) => { $$(".subtabs button", how).forEach((b) => b.classList.toggle("active", b.dataset.t === k)); hb.innerHTML = ""; hb.append(panes[k]()); };
   $$(".subtabs button", how).forEach((b) => b.onclick = () => show(b.dataset.t));
@@ -785,23 +863,59 @@ function renderQueryResult(out, r, body) {
 pages.upload = async (main) => {
   await loadInfo();
   const i = state.info || {};
-  let mode = i.active_mode || "auto";
-  main.append(h(`<div><h1>Carica documenti</h1><p class="muted">I documenti vengono spezzati in passaggi, indicizzati in Atlas e conservati in GridFS. La modalità scelta diventa quella in cui cercano Query e Ricerca agentica.</p></div>`));
+  let mode = (i.modes || {})[i.active_mode] ? i.active_mode : "auto";
+  main.append(h(`<div><h1>Carica documenti</h1><p class="muted">I documenti vengono elaborati in passaggi indicizzati in MongoDB. I file originali possono essere conservati in GridFS oppure in object storage, secondo l’architettura adottata. La modalità scelta qui decide solo come vengono indicizzati i documenti: dove cercare lo scegli in Query e Ricerca agentica.</p></div>`));
+  const models = i.models || {};
+  const HOW = {
+    manual: `<div class="small mode-how"><b>Come:</b> l’app divide il testo in chunk e li invia all’API embeddings di Voyage AI.<br><b>Con cosa:</b> <code>${esc(models.embed || "")}</code> · ${esc(i.embed_dimensions || "")} dimensioni · vettore nel campo <code>embedding</code>.</div>`,
+  };
   const modes = h(`<div class="grid4"></div>`);
+  const ck = i.chunking || { strategy: "structure", size: 512, overlap: 64 };
+  const chunkCard = h(`<div class="card chunk-card" style="margin-top:16px" hidden>
+      <h3 style="margin:0 0 4px">Strategia di chunking · manual</h3>
+      <p class="small muted" style="margin:0 0 10px">In modalità manual l’applicazione decide come dividere il testo prima di calcolare i vettori. I parametri valgono per questo caricamento e restano salvati in ogni passaggio.</p>
+      <div class="settings">
+        <div><label>Strategia</label><select id="c-strategy">
+          <option value="structure">Per struttura</option>
+          <option value="fixed">Finestra fissa</option></select></div>
+        <div><label>Dimensione del chunk (token)</label><input type="number" id="c-size" min="128" max="2048" step="64"></div>
+        <div><label>Sovrapposizione (token)</label><input type="number" id="c-overlap" min="0" step="16"></div>
+        <div><label>Modello e vettore</label><input type="text" disabled value="${esc(models.embed || "")} · ${esc(i.embed_dimensions || "")} dim"></div>
+      </div>
+      <div class="small muted" id="c-help" style="margin-top:8px"></div>
+      <ul class="small muted chunk-tips">
+        <li><b>Confini:</b> un chunk non supera mai la pagina, così la citazione indica la pagina esatta.</li>
+        <li><b>Dimensione:</b> chunk piccoli (256) danno fonti più precise ma con meno contesto; chunk grandi (1024) danno più contesto, ma reranker e modello leggono più testo. Per i 10-K 512 è un buon equilibrio.</li>
+        <li><b>Sovrapposizione:</b> come regola pratica il 10–20% della dimensione; serve a non perdere una frase sul confine tra due chunk.</li>
+        <li><b>Confronto:</b> per ricaricare un documento già presente con altri parametri scegli «sostituisci» nei metadati; la qualità si misura con le stesse domande su Query.</li>
+      </ul></div>`);
+  $("#c-strategy", chunkCard).value = ck.strategy;
+  $("#c-size", chunkCard).value = ck.size;
+  $("#c-overlap", chunkCard).value = ck.overlap;
+  const chunkHelp = () => {
+    const size = Number($("#c-size", chunkCard).value) || 0;
+    $("#c-overlap", chunkCard).max = Math.floor(size / 2);
+    $("#c-help", chunkCard).textContent = $("#c-strategy", chunkCard).value === "fixed"
+      ? `Ogni chunk ha ${size} token; il successivo riparte ${Math.max(size - Number($("#c-overlap", chunkCard).value || 0), 1)} token dopo. Semplice e prevedibile, ma può tagliare una tabella a metà.`
+      : `I blocchi si uniscono fino a ${size} token senza spezzare tabelle: ogni pezzo ripete titolo di sezione e intestazione delle colonne. La sovrapposizione si usa solo quando un paragrafo troppo lungo va diviso.`;
+  };
+  $$("select, input", chunkCard).forEach((el) => el.oninput = chunkHelp);
+  chunkHelp();
   const drawModes = () => {
     modes.innerHTML = Object.entries(i.modes || {}).map(([m, d]) => `<div class="mode-card ${m === mode ? "selected" : ""}" data-m="${m}">
-      <b>${m}</b>${m === i.active_mode ? '<span class="active-badge">attiva</span>' : ""}<div class="small">${esc(d)}</div>
-      <div class="count">${(i.counts || {})[m] || 0} passaggi caricati</div></div>`).join("");
+      <b>${m}</b><div class="small">${esc(d)}</div>${HOW[m] || ""}
+      <div class="count">${((i.counts || {})[m] || 0).toLocaleString("it-IT")} passaggi caricati</div></div>`).join("");
     $$(".mode-card", modes).forEach((c) => c.onclick = () => { mode = c.dataset.m; drawModes(); });
+    chunkCard.hidden = mode !== "manual";
   };
   drawModes();
-  main.append(modes);
+  main.append(modes, chunkCard);
   const form = h(`<div class="card" style="margin-top:16px">
       <div class="drop" id="drop">Trascina qui i documenti oppure
         <label class="btn" style="display:inline-flex;margin:0 6px">scegli i file<input type="file" id="files" multiple hidden accept=".pdf,.docx,.doc,.pptx,.ppt,.xlsx,.xls,.txt,.html,.htm,.csv,.json,.xml,.md"></label>
         <label class="btn" style="display:inline-flex">una cartella<input type="file" id="folder" webkitdirectory hidden></label>
         <div class="small" id="picked" style="margin-top:8px"></div></div>
-      <details style="margin-top:12px"><summary>Metadati (facoltativi: diventano filtri nella ricerca)</summary>
+      <details style="margin-top:12px"><summary>Metadati facoltativi — utili per filtrare i risultati per lingua, periodo e altre proprietà</summary>
         <div class="settings">
           <div><label>Titolo</label><input type="text" id="m-title"></div>
           <div><label>Autore</label><input type="text" id="m-author"></div>
@@ -835,6 +949,8 @@ pages.upload = async (main) => {
     meta.duplicate_policy = $("#m-dup", form).value;
     const fd = new FormData();
     fd.append("mode", mode); fd.append("metadata", JSON.stringify(meta));
+    if (mode === "manual") fd.append("chunking", JSON.stringify({ strategy: $("#c-strategy", chunkCard).value,
+      size: Number($("#c-size", chunkCard).value), overlap: Number($("#c-overlap", chunkCard).value) }));
     files.forEach((f) => fd.append("files", f, f.name));
     const prog = $("#progress", form);
     prog.innerHTML = `<table style="margin-top:12px"><thead><tr><th>#</th><th>File</th><th>Esito</th><th>Pagine</th><th>Passaggi</th><th>Secondi</th></tr></thead><tbody></tbody></table>`;
@@ -859,24 +975,42 @@ pages.upload = async (main) => {
 pages.admin = async (main) => {
   await loadInfo();
   const i = state.info || {};
-  main.append(h(`<div><h1>Admin</h1><p class="muted">Stato di Atlas, modalità attiva, indici e documenti caricati.</p></div>`));
+  main.append(h(`<div><h1>Admin</h1>
+    <p class="muted">Il centro di controllo della demo RAG. Da questa pagina verifichi lo stato di MongoDB Atlas, i documenti indicizzati, le modalità di embedding disponibili e i modelli AI utilizzati.</p>
+    <p class="muted">Puoi inoltre gestire gli indici di ricerca, consultare i documenti originali e amministrare le sessioni e la memoria della ricerca agentica.</p></div>`));
   const total = Object.values(i.counts || {}).reduce((a, b) => a + b, 0);
   main.append(h(`<div class="grid4">
-      <div class="card"><div class="muted small">MongoDB Atlas</div><div class="stat">${i.atlas === "ok" ? "✓ online" : "✗"}</div><div class="small muted">${esc(i.database)}.${esc(i.collection)}</div></div>
-      <div class="card"><div class="muted small">Passaggi indicizzati</div><div class="stat">${total}</div><div class="small muted">in tutte le modalità</div></div>
-      <div class="card"><div class="muted small">Modalità attiva</div><div class="stat">${esc(i.active_mode)}</div><div class="small muted">${esc(i.embed_model || "")}</div></div>
-      <div class="card"><div class="muted small">Modello della risposta</div><div class="stat" style="font-size:17px">${i.llm_ready ? "✓ " : "✗ "}${esc(i.llm)}</div><div class="small muted">rerank ${esc(i.rerank)}</div></div>
+      <div class="card"><div class="muted small">Connessione a MongoDB Atlas</div><div class="stat">${i.atlas === "ok" ? "✓ Connesso" : "✗ Non connesso"}</div><div class="small muted">${esc(i.database)}.${esc(i.collection)}</div></div>
+      <div class="card"><div class="muted small">Passaggi disponibili per la ricerca</div><div class="stat">${total.toLocaleString("it-IT")}</div><div class="small muted">Totale delle modalità</div></div>
+      <div class="card"><div class="muted small">Modalità di ricerca predefinita</div><div class="stat">${esc(modeName(i.active_mode))}</div><div class="small muted">${esc(embedFor(i.active_mode))}</div></div>
+      <div class="card"><div class="muted small">Modelli AI</div><div class="stat" style="font-size:17px">${i.llm_ready ? "✓ " : "✗ "}${esc(i.llm)}</div><div class="small muted">Reranker: ${esc(i.rerank)}</div></div>
     </div>`));
   // Modalità attiva
-  const modeCard = h(`<div class="card" style="margin-top:16px"><h3>Modalità attiva</h3><p class="small muted">Query e Ricerca agentica cercano solo nei documenti caricati nella modalità attiva.</p><div class="grid4" id="modes"></div></div>`);
-  $("#modes", modeCard).innerHTML = Object.entries(i.modes || {}).map(([m, d]) => `<div class="mode-card ${m === i.active_mode ? "selected" : ""}" data-m="${m}"><b>${m}</b><div class="small">${esc(d)}</div><div class="count">${(i.counts || {})[m] || 0} passaggi</div></div>`).join("");
+  const MODE_TEXT = {
+    auto: "MongoDB Atlas genera e gestisce automaticamente gli embedding testuali con Voyage AI.",
+    manual: "L’applicazione genera gli embedding tramite Voyage AI e li salva in MongoDB insieme ai passaggi.",
+    context: "Gli embedding considerano anche il contesto del documento, migliorando la rappresentazione dei singoli passaggi.",
+    multimodal: "Testo e contenuto visivo di pagine e slide vengono rappresentati con embedding multimodali.",
+  };
+  const modeCard = h(`<div class="card" style="margin-top:16px"><h3>Modalità di indicizzazione e ricerca</h3>
+      <p class="small muted">La demo supporta quattro modalità di generazione degli embedding, ciascuna pensata per esigenze documentali diverse. Tutte usano MongoDB come database e motore di ricerca. Query e Ricerca agentica scelgono in quale modalità cercare, anche in tutte insieme; quella selezionata qui è la predefinita all’apertura. Il caricamento non la cambia. Puoi usare modalità diverse per confrontare qualità del recupero, gestione degli embedding e tipologie di contenuto.</p>
+      <div class="grid4" id="modes"></div>
+      <p class="small muted" style="margin:10px 0 0">Ogni modalità usa un indice vettoriale dedicato. Un indice può essere pronto anche senza documenti: per cercare in una modalità bisogna aver caricato contenuti con quella configurazione.</p></div>`);
+  MODE_TEXT.all = "Cerca in tutte le modalità che hanno documenti e fonde i risultati in un’unica classifica.";
+  const allCount = Object.values(i.counts || {}).reduce((a, b) => a + b, 0);
+  $("#modes", modeCard).style.gridTemplateColumns = "repeat(auto-fit, minmax(160px, 1fr))";
+  $("#modes", modeCard).innerHTML = [...Object.keys(i.modes || {}), "all"].map((m) => `<div class="mode-card ${m === i.active_mode ? "selected" : ""}" data-m="${m}"><b>${modeName(m)}</b><div class="small">${esc(MODE_TEXT[m] || i.modes[m])}</div><div class="count">${(m === "all" ? allCount : (i.counts || {})[m] || 0).toLocaleString("it-IT")} passaggi</div></div>`).join("");
   $$(".mode-card", modeCard).forEach((c) => c.onclick = async () => { await sendJSON("/api/admin/mode", { mode: c.dataset.m }); await loadInfo(); route(); });
   main.append(modeCard);
   // Indici e setup
-  const idx = h(`<div class="card"><div class="row"><h3 style="margin:0">Indici Atlas Search</h3><span class="spacer"></span><label class="small" style="margin:0;display:flex;gap:6px;align-items:center"><input type="checkbox" id="recreate"> Elimina e ricrea gli indici</label><button id="setup">Prepara database e indici</button></div>
-      <p class="small muted">Crea ciò che manca e aggiorna gli indici diversi dalla configurazione. “Elimina e ricrea” serve solo dopo un cambio di modello: durante la ricostruzione la ricerca non risponde.</p>
-      <table style="margin-top:10px"><thead><tr><th>Modalità</th><th>Indice vettoriale</th><th>Modello</th><th>Stato</th></tr></thead><tbody>
-      ${(i.indexes || []).map((x) => `<tr><td>${esc(x.mode)}</td><td><code>${esc(x.name)}</code></td><td>${esc(x.model)}</td><td>${esc(x.status)}</td></tr>`).join("")}</tbody></table>
+  const counts = i.counts || {};
+  const totalChunks = Object.values(counts).reduce((a, b) => a + b, 0);
+  const idx = h(`<div class="card"><div class="row"><h3 style="margin:0">Indici di ricerca: MongoDB Search e Vector Search</h3><span class="spacer"></span><label class="small" style="margin:0;display:flex;gap:6px;align-items:center"><input type="checkbox" id="recreate"> Ricrea gli indici</label><button id="setup">Verifica e prepara gli indici</button></div>
+      <p class="small muted">MongoDB Atlas gestisce l’indice testuale e gli indici vettoriali usati dalle diverse modalità di ricerca. Ogni indice vettoriale è associato a uno specifico modello di embedding: la tabella mostra la configurazione corrente, lo stato dell’indice e quanti passaggi contiene ciascuna modalità.</p>
+      <p class="small muted">La preparazione verifica la configurazione e crea gli elementi mancanti. La ricostruzione elimina e crea di nuovo gli indici: serve quando necessario, per esempio dopo un cambio di modello di embedding o della definizione di un indice. Durante la ricostruzione le ricerche che dipendono dagli indici coinvolti possono essere temporaneamente indisponibili.</p>
+      <table style="margin-top:10px"><thead><tr><th>Ricerca</th><th>Indice</th><th>Modello</th><th>Passaggi</th><th>Stato</th></tr></thead><tbody>
+      ${i.text_index ? `<tr><td>testuale · tutte le modalità</td><td><code>${esc(i.text_index.name)}</code></td><td>BM25 · MongoDB Search</td><td>${totalChunks.toLocaleString("it-IT")}</td><td>${esc(i.text_index.status)}</td></tr>` : ""}
+      ${(i.indexes || []).map((x) => `<tr><td>vettoriale · ${esc(x.mode)}</td><td><code>${esc(x.name)}</code></td><td>${esc(x.model)}</td><td>${(counts[x.mode] || 0).toLocaleString("it-IT")}</td><td>${esc(x.status)}${x.status === "READY" && !counts[x.mode] ? ' <span class="muted small">· senza documenti</span>' : ""}</td></tr>`).join("")}</tbody></table>
       ${(i.unavailable || []).length ? `<div class="error">Indici non interrogabili: ${esc(i.unavailable.join(", "))}</div>` : ""}
       <div id="setup-log"></div></div>`);
   $("#setup", idx).onclick = async (e) => {
@@ -886,27 +1020,40 @@ pages.admin = async (main) => {
   };
   main.append(idx);
   // Documenti
-  const docs = h(`<div class="card"><div class="row"><h3 style="margin:0">Documenti caricati</h3><span class="spacer"></span><button class="danger" id="reset-open">Riparti da zero…</button></div>
+  const docs = h(`<div class="card"><div class="row"><h3 style="margin:0">Documenti caricati</h3><span class="spacer"></span><button class="danger" id="reset-open">Azzera i dati della demo…</button></div>
+      <p class="small muted">I documenti della modalità selezionata qui sopra, con i loro metadati e passaggi indicizzati; con «tutte» li vedi tutti. Ogni documento resta collegato al file originale: dalla risposta si risale alla fonte usata. La tabella mostra la modalità di embedding, le pagine elaborate, i passaggi prodotti e la data di caricamento.</p>
       <div id="reset" class="reset-panel" hidden>
-        <b>Riparti da zero</b>
-        <p class="small">Cancella tutti i passaggi e i file originali (GridFS), poi prepara di nuovo database e indici. Le impostazioni restano.</p>
-        <label class="small"><input type="checkbox" id="r-sessions" checked> Cancella anche sessioni e ricerche della Ricerca agentica</label>
-        <label class="small"><input type="checkbox" id="r-indexes"> Elimina e ricrea anche gli indici Atlas Search</label>
-        <label class="small" style="margin-top:8px">Per confermare scrivi <b>AZZERA</b></label>
-        <div class="row"><input type="text" id="r-confirm" style="max-width:180px" autocomplete="off"><button class="danger" id="r-go" disabled>Cancella tutto e ricrea</button><button id="r-cancel">Annulla</button></div>
+        <b>Attenzione: operazione irreversibile.</b>
+        <p class="small">L’azzeramento elimina tutti i documenti caricati, i loro passaggi indicizzati e i file originali conservati nello storage configurato (in questa demo GridFS). Al termine l’applicazione prepara di nuovo le strutture necessarie alla ricerca; le impostazioni della demo restano.</p>
+        <p class="small">Puoi scegliere se includere anche la memoria della Ricerca agentica e se ricreare gli indici di ricerca.</p>
+        <label class="small"><input type="checkbox" id="r-sessions" checked> Elimina anche la memoria e lo storico della Ricerca agentica</label>
+        <label class="small"><input type="checkbox" id="r-indexes"> Ricrea anche gli indici di ricerca (testuale e vettoriali)</label>
+        <label class="small" style="margin-top:8px">Digita <b>AZZERA</b> per confermare</label>
+        <div class="row"><input type="text" id="r-confirm" style="max-width:180px" autocomplete="off"><button class="danger" id="r-go" disabled>Conferma azzeramento</button><button id="r-cancel">Annulla</button></div>
         <div id="reset-log"></div>
       </div>
       <div id="doclist" class="muted">Caricamento…</div></div>`);
   main.append(docs);
+  // La tabella segue la modalità selezionata sopra: solo i documenti (e i passaggi) di quella modalità.
+  const sel = i.active_mode;
   const loadDocs = async () => {
-    const list = await getJSON("/api/admin/documents");
+    const all = await getJSON("/api/admin/documents");
+    const list = sel === "all" ? all : all.map((d) => {
+      const m = (d.by_mode || []).find((x) => x.mode === sel);
+      return m ? { ...d, chunks: m.chunks, ingested_at: m.ingested_at, modes: [sel] } : null;
+    }).filter(Boolean);
     const chunks = list.reduce((a, d) => a + d.chunks, 0);
-    $("#doclist", docs).innerHTML = list.length ? `<p class="small">${list.length} documenti · ${chunks} passaggi</p><table><thead><tr><th>Documento</th><th>Modalità</th><th>Pagine</th><th>Passaggi</th><th>Caricato</th><th></th></tr></thead><tbody>
-      ${list.map((d) => `<tr><td>${esc(d.filename || d.title)}${d.title && d.title !== d.filename ? `<div class="muted small">${esc(d.title)}</div>` : ""}${d.gridfs_file_id ? ` · <a href="/api/files/${esc(d.gridfs_file_id)}" target="_blank">PDF</a>` : ""}</td><td>${esc((d.modes || []).join(", "))}</td><td>${d.total_pages ?? ""}</td><td>${d.chunks}</td><td>${esc((d.ingested_at || "").slice(0, 16).replace("T", " "))}</td>
-        <td><button class="danger small" data-id="${esc(d._id)}">Elimina</button></td></tr>`).join("")}</tbody></table>` : "<p>Nessun documento. Caricali dalla pagina Upload.</p>";
+    const scope = sel === "all" ? "tutte le modalità" : `modalità ${sel}`;
+    const hiddenDocs = all.length - list.length;
+    $("#doclist", docs).innerHTML = (list.length ? `<p class="small"><b>${esc(scope)}</b> · ${list.length.toLocaleString("it-IT")} ${list.length === 1 ? "documento" : "documenti"} · ${chunks.toLocaleString("it-IT")} passaggi${hiddenDocs ? ` <span class="muted">· ${hiddenDocs === 1 ? "un altro documento" : `altri ${hiddenDocs} documenti`} in altre modalità: scegli «tutte» per vederli</span>` : ""}</p><table><thead><tr><th>Documento originale</th><th>Modalità di embedding</th><th>Pagine elaborate</th><th>Passaggi indicizzati</th><th>Data di caricamento</th><th></th></tr></thead><tbody>
+      ${list.map((d) => `<tr><td>${esc(d.filename || d.title)}${d.title && d.title !== d.filename ? `<div class="muted small">${esc(d.title)}</div>` : ""}${d.gridfs_file_id ? ` · <a href="/api/files/${esc(d.gridfs_file_id)}" target="_blank">PDF</a>` : ""}</td><td>${esc((d.modes || []).join(", "))}</td><td>${d.total_pages ?? ""}</td><td>${d.chunks.toLocaleString("it-IT")}</td><td>${esc(fmtDate(d.ingested_at))}</td>
+        <td><button class="danger small" data-id="${esc(d._id)}" data-name="${esc(shortFile(d.filename || d.title))}">${sel === "all" ? "Elimina documento" : `Elimina da ${esc(sel)}`}</button></td></tr>`).join("")}</tbody></table>`
+      : `<p>Nessun documento in ${esc(scope)}. ${hiddenDocs ? `Ce ne sono ${hiddenDocs} in altre modalità: selezionane un’altra qui sopra o «tutte».` : "Caricali dalla pagina Upload."}</p>`);
     $$("button[data-id]", docs).forEach((b) => b.onclick = async () => {
-      if (b.dataset.confirm !== "1") { b.dataset.confirm = "1"; b.textContent = "Conferma"; return; }
-      b.disabled = true; await sendJSON(`/api/admin/documents/${encodeURIComponent(b.dataset.id)}`, null, "DELETE"); await loadDocs(); loadInfo();
+      if (b.dataset.confirm !== "1") { b.dataset.confirm = "1"; b.textContent = sel === "all" ? `Conferma: elimina ${b.dataset.name} da tutte le modalità` : `Conferma: elimina ${b.dataset.name} da ${sel}`; return; }
+      b.disabled = true;
+      await sendJSON(`/api/admin/documents/${encodeURIComponent(b.dataset.id)}${sel === "all" ? "" : `?mode=${encodeURIComponent(sel)}`}`, null, "DELETE");
+      await loadDocs(); loadInfo();
     });
   };
   const panel = $("#reset", docs);
@@ -922,22 +1069,24 @@ pages.admin = async (main) => {
   };
   loadDocs().catch((err) => $("#doclist", docs).replaceChildren(errorBox(err.message)));
   // Sessioni della Ricerca agentica
-  const ses = h(`<div class="card"><div class="row"><h3 style="margin:0">Sessioni della Ricerca agentica</h3><span class="spacer"></span><button class="danger" id="del-sessions">Cancella tutte le sessioni</button></div>
+  const ses = h(`<div class="card"><div class="row"><h3 style="margin:0">Memoria e storico della Ricerca agentica</h3><span class="spacer"></span><button class="danger" id="del-sessions">Elimina memoria e storico agentico</button></div>
       <p class="small muted" id="ses-count">Conteggio…</p>
-      <p class="small muted">Cancella conversazioni e ricerche salvate (collection <code>agentic_sessions</code> e <code>agentic_runs</code>). Documenti e indici restano.</p></div>`);
+      <p class="small muted">MongoDB conserva le sessioni di conversazione e le esecuzioni della Ricerca agentica: così mantiene il contesto tra domande successive e permette di ricostruire le operazioni effettuate. Le informazioni stanno in due collection:</p>
+      <ul class="small muted" style="margin:0 0 8px"><li><code>agentic_sessions</code>: le sessioni e la memoria conversazionale;</li><li><code>agentic_runs</code>: le singole esecuzioni, con eventi, valutazioni, fonti e risultati.</li></ul>
+      <p class="small muted">L’eliminazione cancella tutte le sessioni e le esecuzioni salvate in queste due collection. I documenti caricati, i passaggi indicizzati e gli indici di ricerca non vengono modificati. La cancellazione non può essere annullata dall’applicazione.</p></div>`);
   main.append(ses);
   const countSessions = async () => {
     const c = await getJSON("/api/admin/sessions");
-    $("#ses-count", ses).textContent = `${c.sessions} sessioni con domande · ${c.runs} ricerche salvate`;
+    $("#ses-count", ses).textContent = `Sessioni con domande: ${c.sessions} · esecuzioni salvate: ${c.runs}`;
   };
   countSessions().catch((err) => $("#ses-count", ses).replaceChildren(errorBox(err.message)));
   $("#del-sessions", ses).onclick = async (e) => {
     const b = e.target;
-    if (b.dataset.confirm !== "1") { b.dataset.confirm = "1"; b.textContent = "Conferma: cancella tutte le sessioni"; return; }
+    if (b.dataset.confirm !== "1") { b.dataset.confirm = "1"; b.textContent = "Conferma: elimina memoria e storico"; return; }
     b.disabled = true;
     try {
       const r = await sendJSON("/api/admin/sessions", null, "DELETE");
-      b.textContent = `Cancellate ${r.sessions_deleted} sessioni e ${r.runs_deleted} ricerche`;
+      b.textContent = `Eliminate: sessioni ${r.sessions_deleted}, esecuzioni ${r.runs_deleted}`;
       state.sessionId = null;
       await countSessions();
     } catch (err) { ses.append(errorBox(err.message)); b.disabled = false; }

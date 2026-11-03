@@ -9,6 +9,7 @@ senza quel parametro; l'esito viene ricordato per le chiamate successive.
 from __future__ import annotations
 
 import logging
+import re
 from typing import Any
 
 import httpx
@@ -42,16 +43,30 @@ def _text_from(data: dict[str, Any]) -> str:
     return "".join(parts)
 
 
-def _rejected_parameter(response: httpx.Response, candidates: list[str]) -> str | None:
-    """Il parametro opzionale che il gateway ha rifiutato, dal campo `param` o dal messaggio."""
+def _error(response: httpx.Response) -> dict[str, Any]:
     try:
         error = (response.json() or {}).get("error") or {}
-    except ValueError:
+    except (ValueError, AttributeError):
         error = {}
+    return error if isinstance(error, dict) else {"message": str(error)}
+
+
+def _error_message(response: httpx.Response) -> str:
+    """Il motivo scritto dal gateway, per mostrarlo invece del solo codice HTTP."""
+    message = str(_error(response).get("message") or response.text or "nessun dettaglio")
+    return " ".join(message.split())[:300]
+
+
+def _rejected_parameter(response: httpx.Response, candidates: list[str]) -> str | None:
+    """Il parametro opzionale che il gateway ha rifiutato, dal campo `param` o dal messaggio."""
+    error = _error(response)
     param = str(error.get("param") or "")
     message = str(error.get("message") or response.text)
     for name in candidates:
-        if param.split(".")[0] == name or f"'{name}" in message or f'"{name}' in message:
+        quoted = f"'{name}" in message or f'"{name}' in message
+        # "reasoning.effort is not supported": nome citato senza virgolette (non per "text", parola troppo comune).
+        bare = name != "text" and re.search(rf"\b{name}\b", message, re.I)
+        if param.split(".")[0] == name or quoted or bare:
             return name
     return None
 
@@ -72,29 +87,41 @@ def respond(system: str, user: str, *, model: str, max_tokens: int, json_mode: b
     url = f"{config.AI_GATEWAY_BASE_URL}/responses"
     last_error = ""
     for key in keys:
-        for _ in range(len(optional) + 1):
+        minimal = False  # ultimo tentativo: nessun parametro facoltativo
+        for _ in range(len(optional) + 2):
+            active = {} if minimal else {name: value for name, value in optional.items() if name not in _UNSUPPORTED}
             payload: dict[str, Any] = {
                 "model": model,
                 "instructions": system,
                 "input": [{"role": "user", "content": user}],
                 # Margine per l'eventuale ragionamento interno del modello.
                 "max_output_tokens": max(max_tokens * 3, 1500),
-                **{name: value for name, value in optional.items() if name not in _UNSUPPORTED},
+                **active,
             }
             response = httpx.post(url, json=payload, timeout=timeout,
                                   headers={"Authorization": f"Bearer {key}"})
             if response.status_code == 400:
-                rejected = _rejected_parameter(response, [n for n in optional if n not in _UNSUPPORTED])
+                rejected = _rejected_parameter(response, list(active))
                 if rejected:
                     log.info("Il modello %s non accetta il parametro %s: lo tolgo", model, rejected)
                     _UNSUPPORTED.add(rejected)
                     continue
+                if active:
+                    # 400 senza indicare il parametro: si riprova una volta con la richiesta minima.
+                    log.warning("AI Gateway 400 (%s): riprovo senza parametri facoltativi", _error_message(response))
+                    minimal = True
+                    continue
             if response.status_code in {401, 403, 429} and key != keys[-1]:
-                last_error = f"HTTP {response.status_code}: {response.text[:200]}"
+                last_error = f"HTTP {response.status_code}: {_error_message(response)}"
                 break  # prova con la seconda chiave
             if response.status_code == 403 and "RBAC" in response.text:
                 raise RuntimeError("AI Gateway: accesso negato dalla rete (RBAC). Serve la VPN aziendale attiva.")
-            response.raise_for_status()
+            if response.status_code >= 400:
+                raise RuntimeError(f"AI Gateway ha rifiutato la richiesta (HTTP {response.status_code}, "
+                                   f"modello {model}): {_error_message(response)}")
+            if minimal:
+                # La richiesta minima è passata: quei parametri non si rimandano più a questo gateway.
+                _UNSUPPORTED.update(optional)
             data = response.json()
             details = data.get("incomplete_details") or {}
             usage = data.get("usage") or {}

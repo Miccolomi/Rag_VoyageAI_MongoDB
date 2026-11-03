@@ -24,6 +24,8 @@ STOP_REASONS = {
     "rephrased_duplicate": "La ricerca proposta ripete gli stessi termini sostanziali di una ricerca precedente.",
     "off_topic": "Il passaggio più pertinente è sotto la soglia: la domanda sembra fuori tema rispetto ai documenti.",
     "no_results": "La ricerca non ha restituito passaggi.",
+    "no_new_passages": "La nuova ricerca ha restituito solo passaggi già valutati: altre ricerche non aggiungerebbero nulla.",
+    "not_in_documents": "Due ricerche diverse non hanno trovato nessuno degli elementi richiesti: i documenti caricati non sembrano contenerli.",
 }
 
 
@@ -65,10 +67,42 @@ def _fuse(rounds: list[list[dict]]) -> dict[str, dict[str, Any]]:
     return fused
 
 
+MAX_PARTS = 4  # ricerche parallele al massimo per una domanda con più parti
+
+
+def _nothing_found(grade: dict) -> bool:
+    """Valutazione riuscita, con elementi richiesti, e nessuno trovato nemmeno in altri periodi.
+
+    Un valore trovato per un altro anno è un indizio utile (il dato esiste nei documenti):
+    in quel caso la ricerca deve continuare, non fermarsi come se l'argomento mancasse.
+    """
+    elements = grade.get("elements") or []
+    return bool(grade.get("evaluated", True) and elements and not any(
+        e.get("found") or e.get("values") or e.get("other_values") for e in elements))
+
+
+def _alternate(rounds: list[list[dict]], limit: int) -> list[dict]:
+    """I primi passaggi di ogni ricerca, a turno: nessuna ricerca copre le altre."""
+    pool: list[dict] = []
+    keys: set[str] = set()
+    for rank in range(max((len(r) for r in rounds), default=0)):
+        for ranked in rounds:
+            if rank < len(ranked):
+                doc = ranked[rank]
+                key = str(doc.get("_id", passage_key(doc)))
+                if key not in keys:
+                    keys.add(key)
+                    pool.append(doc)
+                    if len(pool) >= limit:
+                        return pool
+    return pool
+
+
 def run_agent(req: AgentRequest, *, runs, sessions, collection) -> Iterator[dict[str, Any]]:
     settings = {"interaction_mode": "Automatica", "top_k": req.top_k, "top_n": req.top_n,
                 "retries": req.retries, "filters": req.filters or {},
-                "rerank_instructions": req.rerank_instructions, "skip_ambiguity": req.skip_ambiguity}
+                "rerank_instructions": req.rerank_instructions, "skip_ambiguity": req.skip_ambiguity,
+                "search_mode": req.embed_mode}
     run_id = agentic_memory.start_run(
         runs, sessions, req.session_id, req.question, parent_run_id=req.parent_run_id,
         feedback_id=req.feedback_id, settings=settings, feedback_context=req.feedback_context)
@@ -93,18 +127,25 @@ def run_agent(req: AgentRequest, *, runs, sessions, collection) -> Iterator[dict
         scope = search_scope.require_scope(req.embed_mode)
         modes = scope["modes"]
 
-        # 1. Interpretazione: solo se c'è una conversazione da cui risolvere riferimenti.
+        # 1. Interpretazione: se c'è una conversazione da cui risolvere riferimenti,
+        #    oppure se la domanda chiede più cose indipendenti (da cercare separatamente).
         started = time.perf_counter()
-        if (req.planning_memory or req.planning_summaries or req.feedback_context) and not req.is_clarification:
+        multi_part = agentic_search.looks_multi_part(req.question)
+        if (req.planning_memory or req.planning_summaries or req.feedback_context or multi_part) and not req.is_clarification:
             plan = agentic_search.plan_search(req.question, req.planning_memory, req.planning_summaries)
             plan["skipped"] = False
         else:
-            plan = {"search_query": req.question, "comment": "", "error": None, "skipped": True}
+            plan = {"search_query": req.question, "search_queries": [req.question], "comment": "", "error": None,
+                    "skipped": True}
         plan_ms = (time.perf_counter() - started) * 1000
-        initial_query = agentic_search.compose_search_query(
-            plan["search_query"], "" if req.is_clarification else req.feedback_context)
+        context = "" if req.is_clarification else req.feedback_context
+        initial_query = agentic_search.compose_search_query(plan["search_query"], context)
+        parts = plan.get("search_queries") or [plan["search_query"]]
+        sub_queries = ([agentic_search.compose_search_query(q, context) for q in parts] if len(parts) > 1
+                       else [initial_query])
         yield record({
             "type": "plan", "search_query": initial_query, "planned_query": plan["search_query"],
+            "sub_queries": sub_queries if len(sub_queries) > 1 else [],
             "planner_skipped": plan["skipped"], "duration_ms": round(plan_ms), "comment": plan["comment"],
             "memory_messages_used": len(req.planning_memory),
             "memory": {"collection": "agentic_sessions", "session_id": req.session_id,
@@ -124,8 +165,13 @@ def run_agent(req: AgentRequest, *, runs, sessions, collection) -> Iterator[dict
         rounds: list[list[dict]] = []
         executed: list[str] = []
         union: dict[str, dict] = {}
+        queries = sub_queries
+        # Con più ricerche indipendenti i passaggi si alternano: ogni parte della domanda ha le sue
+        # fonti davanti al valutatore, invece di essere coperta dai passaggi di un'altra parte.
+        balanced = len(queries) > 1
         search_query = initial_query
-        seen = {req.question.casefold(), plan["search_query"].casefold(), initial_query.casefold()}
+        seen = {req.question.casefold(), plan["search_query"].casefold(), initial_query.casefold(),
+                *(q.casefold() for q in sub_queries)}
         stop_reason = "Ho usato tutte le ricerche configurate."
         final_query = initial_query
         pool: list[dict] = []
@@ -133,31 +179,40 @@ def run_agent(req: AgentRequest, *, runs, sessions, collection) -> Iterator[dict
         not_answerable: str | None = None
         ambiguity = None
         threshold = config.RERANK_RELEVANCE_THRESHOLD
+        last_grade: dict | None = None
 
         for iteration in range(req.retries + 1):
-            # 2. Ricerca ibrida + reranking in Atlas.
-            started = time.perf_counter()
-            candidates, ranked = agentic_search.retrieve_candidates(
-                collection, search_query, filters=req.filters, modes=modes,
-                top_k=req.top_k, instructions=req.rerank_instructions)
-            retrieval_ms = (time.perf_counter() - started) * 1000
-            rounds.append(ranked)
-            executed.append(search_query)
-            for doc in candidates:
-                union.setdefault(str(doc.get("_id", passage_key(doc))), doc)
-            refs = [{"rank": r, "filename": d.get("filename"), "page": d.get("page_number"),
-                     "chunk_id": str(d.get("_id", "")), "score": d.get("_rerank_score")}
-                    for r, d in enumerate(ranked[:10], start=1)]
-            yield record({"type": "retrieval", "iteration": iteration + 1, "search_query": search_query,
-                          "candidate_count": len(candidates), "ranked_sources": refs, "search_modes": modes,
-                          "duration_ms": round(retrieval_ms), "focused": iteration > 0},
-                         step="grading", iteration=iteration + 1, candidate_count=len(candidates))
+            # 2. Ricerca ibrida + reranking in MongoDB, una per ogni parte da cercare.
+            tops: list[float] = []
+            found_any = False
+            known = len(union)
+            for part, search_query in enumerate(queries, start=1):
+                started = time.perf_counter()
+                candidates, ranked = agentic_search.retrieve_candidates(
+                    collection, search_query, filters=req.filters, modes=modes,
+                    top_k=req.top_k, instructions=req.rerank_instructions)
+                retrieval_ms = (time.perf_counter() - started) * 1000
+                rounds.append(ranked)
+                executed.append(search_query)
+                found_any = found_any or bool(ranked)
+                if ranked and isinstance(ranked[0].get("_rerank_score"), (int, float)):
+                    tops.append(ranked[0]["_rerank_score"])
+                for doc in candidates:
+                    union.setdefault(str(doc.get("_id", passage_key(doc))), doc)
+                refs = [{"rank": r, "filename": d.get("filename"), "page": d.get("page_number"),
+                         "chunk_id": str(d.get("_id", "")), "score": d.get("_rerank_score")}
+                        for r, d in enumerate(ranked[:10], start=1)]
+                yield record({"type": "retrieval", "iteration": iteration + 1, "search_query": search_query,
+                              "part": part, "parts": len(queries),
+                              "candidate_count": len(candidates), "ranked_sources": refs, "search_modes": modes,
+                              "duration_ms": round(retrieval_ms), "focused": iteration > 0},
+                             step="grading", iteration=iteration + 1, candidate_count=len(candidates))
 
-            # Stessa soglia fuori tema della Query, sulla prima ricerca.
+            # Stessa soglia fuori tema della Query, sulla prima ricerca (la parte più pertinente).
             if iteration == 0:
-                top = ranked[0].get("_rerank_score") if ranked else None
-                if not ranked or (isinstance(top, (int, float)) and top < threshold):
-                    not_answerable = "no_results" if not ranked else "off_topic"
+                top = max(tops) if tops else None
+                if not found_any or (top is not None and top < threshold):
+                    not_answerable = "no_results" if not found_any else "off_topic"
                     stop_reason = STOP_REASONS[not_answerable]
                     if not_answerable == "off_topic":
                         stop_reason += f" (miglior passaggio {top:.3f} < soglia {threshold:.2f})"
@@ -165,10 +220,24 @@ def run_agent(req: AgentRequest, *, runs, sessions, collection) -> Iterator[dict
                                   "top_rerank": top, "threshold": threshold}, step="decision", iteration=1)
                     break
 
-            # Insieme cumulativo riordinato rispetto alla domanda completa.
+            # Ricerca supplementare che non porta nessun passaggio nuovo: rivalutare gli stessi
+            # passaggi darebbe lo stesso esito, quindi si ferma.
+            if iteration > 0 and len(union) == known:
+                stop_reason = STOP_REASONS["no_new_passages"]
+                yield record({"type": "decision", "iteration": iteration + 1, "reason": "no_new_passages",
+                              "action": "stop"}, step="decision", iteration=iteration + 1)
+                break
+
+            # Insieme cumulativo delle ricerche fatte finora.
             fused = _fuse(rounds)
             if len(rounds) == 1:
-                pool = list(ranked)
+                pool = list(rounds[0])
+            elif balanced:
+                pool = _alternate(rounds, max(req.top_n, agentic_search.GRADER_PASSAGES))
+                yield record({"type": "agent_rank_fusion", "unique_candidates": len(fused), "reranked": 0,
+                              "duration_ms": 0, "balanced": True,
+                              "comment": "Passaggi delle ricerche alternati: ogni parte della domanda ha le sue fonti."},
+                             step="grading", iteration=iteration + 1, candidate_count=len(fused))
             else:
                 ordered = sorted(fused.values(), key=lambda item: item["score"], reverse=True)
                 started = time.perf_counter()
@@ -215,6 +284,17 @@ def run_agent(req: AgentRequest, *, runs, sessions, collection) -> Iterator[dict
                               "action": "stop"}, step="decision", iteration=iteration + 1)
                 break
 
+            # Nessun elemento trovato né nella prima ricerca né in quella mirata: i documenti non
+            # sembrano contenere la risposta. Altre riformulazioni troverebbero solo passaggi non pertinenti.
+            nothing_now = _nothing_found(grade)
+            if iteration > 0 and nothing_now and last_grade is not None and _nothing_found(last_grade):
+                last_grade = grade
+                stop_reason = STOP_REASONS["not_in_documents"]
+                yield record({"type": "decision", "iteration": iteration + 1, "reason": "not_in_documents",
+                              "action": "stop"}, step="decision", iteration=iteration + 1)
+                break
+            last_grade = grade
+
             decision = agentic_search.decide_next_search(grade, iteration=iteration, retries=req.retries,
                                                          seen_queries=seen)
             yield record({"type": "decision", "iteration": iteration + 1, "reason": decision["reason"],
@@ -223,13 +303,21 @@ def run_agent(req: AgentRequest, *, runs, sessions, collection) -> Iterator[dict
             if decision["action"] == "stop":
                 stop_reason = STOP_REASONS[decision["reason"]]
                 break
-            # Ricerca mirata al solo elemento mancante.
-            search_query = decision["query"]
-            seen.add(search_query.casefold())
-            yield record({"type": "rewrite", "iteration": iteration + 1, "search_query": search_query,
-                          "reason": grade.get("comment", "")}, step="rewrite", iteration=iteration + 1)
+            # Ricerca mirata ai soli elementi mancanti: una per elemento se ne mancano più d'uno.
+            missing = [m for m in grade.get("missing_elements") or [] if m.casefold() not in seen]
+            queries = missing[:MAX_PARTS] if len(missing) > 1 else [decision["query"]]
+            balanced = balanced or len(queries) > 1
+            seen.update(q.casefold() for q in queries)
+            yield record({"type": "rewrite", "iteration": iteration + 1, "search_query": "; ".join(queries),
+                          "queries": queries, "reason": grade.get("comment", "")}, step="rewrite", iteration=iteration + 1)
 
         final_sources = pool[:req.top_n]
+        # Nessun elemento trovato nell'ultima valutazione: niente risposta con fonti che non c'entrano.
+        if not not_answerable and last_grade is not None and _nothing_found(last_grade):
+            not_answerable = "not_in_documents"
+            missing = "; ".join(e.get("element", "") for e in last_grade.get("elements") or [])
+            stop_reason = (f"Nessuna delle {len(executed)} ricerche ha trovato passaggi su: {missing}. "
+                           "I documenti caricati non sembrano contenerlo.")
 
         if not_answerable == "needs_clarification":
             years = ", ".join(str(o["year"]) for o in ambiguity["options"])

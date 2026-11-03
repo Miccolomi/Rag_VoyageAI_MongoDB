@@ -422,11 +422,36 @@ def _chunk_markdown(text: str, size: int, overlap: int) -> list[str]:
     return [c for c in chunks if not re.fullmatch(r"#+[^\n]*", c)]
 
 
+CHUNK_STRATEGIES = ("structure", "fixed")
+
+
+def chunking_settings(values: dict[str, Any] | None = None) -> dict[str, Any]:
+    """Parametri di chunking validati; quelli assenti prendono i valori del .env.
+
+    strategy: "structure" → blocchi di titoli, paragrafi e tabelle intere fino a `size` token;
+              l'overlap si usa solo quando un paragrafo va spezzato.
+              "fixed"     → finestra fissa di `size` token che scorre di `size - overlap`.
+    I chunk non attraversano mai il confine di pagina: la citazione resta precisa.
+    """
+    values = values or {}
+    strategy = str(values.get("strategy") or "structure").lower()
+    if strategy not in CHUNK_STRATEGIES:
+        raise ValueError("Strategia di chunking: structure oppure fixed")
+    size = int(values.get("size") or config.CHUNK_SIZE_TOKENS)
+    overlap = int(values.get("overlap") if values.get("overlap") not in (None, "") else config.CHUNK_OVERLAP_TOKENS)
+    if not 128 <= size <= 2048:
+        raise ValueError("Dimensione del chunk: tra 128 e 2048 token")
+    if not 0 <= overlap <= size // 2:
+        raise ValueError("Sovrapposizione: tra 0 e metà della dimensione del chunk")
+    return {"strategy": strategy, "size": size, "overlap": overlap}
+
+
 def build_chunks(
     pages: list[dict[str, Any]],
     *,
     size: int,
     overlap: int,
+    strategy: str = "structure",
 ) -> list[dict[str, Any]]:
     """Flatten pagine → lista chunk con (content, page_number, content_type).
 
@@ -437,7 +462,8 @@ def build_chunks(
     out: list[dict[str, Any]] = []
     for page in pages:
         visual = bool(page.get("visual_image"))
-        for piece in ([] if visual else _chunk_markdown(page["text"], size, overlap)):
+        split = _chunk_text if strategy == "fixed" else _chunk_markdown
+        for piece in ([] if visual else split(page["text"], size, overlap)):
             out.append({
                 "content": piece,
                 "page_number": page["page_number"],
@@ -499,6 +525,7 @@ def ingest_pdf(
     storage: str = "gridfs",
     mode: str | None = None,
     user_metadata: dict[str, Any] | None = None,
+    chunking: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Pipeline completa di ingest per un singolo PDF.
 
@@ -514,6 +541,7 @@ def ingest_pdf(
                    year (int), tags (list[str]), file_type.
                    Sovrascrivono i metadati estratti dal PDF; vengono propagati
                    identici a TUTTI i chunk del documento.
+    chunking:      dict opzionale {strategy, size, overlap}: vedi `chunking_settings`.
     """
     started_at = time.perf_counter()
     mode = (mode or config.EMBED_MODE).lower()
@@ -526,6 +554,7 @@ def ingest_pdf(
     ).lower()
     if duplicate_policy not in ("skip", "replace", "append"):
         raise ValueError("duplicate_policy deve essere: skip | replace | append")
+    chunk_params = chunking_settings(chunking)
     path = Path(path)
     if not path.exists():
         raise FileNotFoundError(path)
@@ -568,11 +597,7 @@ def ingest_pdf(
     else:
         raise ValueError(f"storage non supportato: {storage}")
 
-    raw_chunks = build_chunks(
-        pages,
-        size=config.CHUNK_SIZE_TOKENS,
-        overlap=config.CHUNK_OVERLAP_TOKENS,
-    )
+    raw_chunks = build_chunks(pages, size=chunk_params["size"], overlap=chunk_params["overlap"], strategy=chunk_params["strategy"])
 
     now = datetime.now(timezone.utc)
 
@@ -691,6 +716,8 @@ def ingest_pdf(
             "schema_version": _SCHEMA_VERSION,
             "ingestion_pipeline_version": config.INGESTION_PIPELINE_VERSION,
             "chunker_version": config.CHUNKER_VERSION,
+            "chunking": {"strategy": chunk_params["strategy"], "size_tokens": chunk_params["size"],
+                         "overlap_tokens": chunk_params["overlap"]},
             "embedding_mode": mode,
             "embedding_model": {
                 "auto": config.VOYAGE_EMBED_MODEL,

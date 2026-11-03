@@ -31,7 +31,7 @@ def test_seconda_ricerca_porta_tutti_i_dati():
          "elements": [{"element": "capex", "found": True}, {"element": "dipendenti", "found": True}]},
         {"type": "answer", "status": "generated", "attempts": 1}]))
     assert data["title"] == "Ha cercato il dato mancante"
-    assert data["standard"] == "Risponderebbe con 1 dato su 2"
+    assert data["standard"] == "Risponderebbe con copertura 1/2"
     assert data["standard_found"] == {"capex"} and data["agent_found"] == {"capex", "dipendenti"}
 
 

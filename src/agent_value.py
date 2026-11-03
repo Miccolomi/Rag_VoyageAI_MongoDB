@@ -22,7 +22,8 @@ def _short(text: str, limit: int = 90) -> str:
 
 
 def _dati(n: int, total: int) -> str:
-    return f"{n} {'dato' if n == 1 else 'dati'} su {total}"
+    """Copertura come frazione: niente accordi singolare/plurale sbagliati («1 dati»)."""
+    return f"copertura {n}/{total}"
 
 
 def summarize_run(run: dict[str, Any], parent: dict[str, Any] | None = None) -> dict[str, Any] | None:
@@ -49,14 +50,18 @@ def summarize_run(run: dict[str, Any], parent: dict[str, Any] | None = None) -> 
     elements = [e.get("element") for e in (last.get("elements") or first.get("elements") or [])]
     last_found = {e.get("element") for e in last.get("elements") or [] if e.get("found")}
     planned = plan.get("planned_query") or ""
-    understood = bool(plan) and not plan.get("planner_skipped") and planned.strip().casefold() != question.strip().casefold()
     memory = plan.get("memory") or {}
+    # «Ha capito dalla conversazione»: solo se c'era una conversazione (o un'indicazione dell'utente).
+    # Il pianificatore parte anche per dividere le domande con più parti, senza memoria.
+    understood = (bool(plan) and not plan.get("planner_skipped") and bool(memory.get("turns") or plan.get("feedback_context"))
+                  and planned.strip().casefold() != question.strip().casefold())
     chosen = None
     if asked:
         import re
         match = re.search(r"anno (\d{4})", f"{plan.get('feedback_context') or ''} {question}")
         chosen = match.group(1) if match else None
-    absent = decision.get("reason") in {"off_topic", "no_results"} or (elements and not last_found and not first_found)
+    absent = (decision.get("reason") in {"off_topic", "no_results", "not_in_documents"}
+              or ((answer or {}).get("diagnostics") or {}).get("block_reason") == "not_in_documents") or (elements and not last_found and not first_found)
 
     # Scenario principale: cosa l'agente ha fatto che la ricerca standard non fa.
     if clarification:
@@ -70,7 +75,7 @@ def summarize_run(run: dict[str, Any], parent: dict[str, Any] | None = None) -> 
                     "Avrebbe risposto con l’anno che il reranker mette in cima, senza dire che negli altri anni i valori cambiano",
                     (f"Ha visto valori diversi in {len(years)} anni ({', '.join(years)}), ti ha fatto scegliere"
                      + (f" e ha risposto con i dati del {chosen}" if chosen else " e ha confrontato gli anni")
-                     + f": {_dati(len(last_found), len(elements) or len(last_found))} verificati"))
+                     + f" · {_dati(len(last_found), len(elements) or len(last_found))}"))
     elif understood and not absent:
         turns = memory.get("turns") or 0
         scenario = ("Ha ricordato la conversazione, salvata in MongoDB",
@@ -80,16 +85,21 @@ def summarize_run(run: dict[str, Any], parent: dict[str, Any] | None = None) -> 
     elif absent:
         scenario = ("Non ha risposto a memoria",
                     "Chiamerebbe comunque il modello sui passaggi trovati",
-                    "Ha controllato le fonti: i dati richiesti non ci sono e lo dice")
+                    "Non ha trovato i dati richiesti nei passaggi recuperati e lo dice, senza inventarli")
+    elif len(plan.get("sub_queries") or []) > 1:
+        parts = len(plan["sub_queries"])
+        scenario = (f"Ha diviso la domanda in {parts} ricerche",
+                    "Cercherebbe tutto con una sola ricerca: i passaggi di una parte possono coprire le altre",
+                    f"Ha cercato ogni parte separatamente · {_dati(len(last_found), len(elements) or len(last_found))}")
     elif len(searches) > 1 and len(last_found) > len(first_found):
         scenario = ("Ha cercato il dato mancante",
                     f"Risponderebbe con {_dati(len(first_found), len(elements))}",
-                    f"Ha fatto una ricerca mirata ed è arrivato a {_dati(len(last_found), len(elements))}")
+                    f"Ha fatto una ricerca mirata · {_dati(len(last_found), len(elements))}")
     else:
         scenario = ("Ha verificato prima di rispondere",
-                    "Risponderebbe senza controllare se le fonti bastano",
-                    f"Ha controllato che le fonti coprano {_dati(len(last_found), len(elements) or len(last_found))}"
-                    if elements else "Ha controllato che le fonti bastino")
+                    "Genera la risposta dai passaggi selezionati",
+                    f"Evidenze giudicate sufficienti per rispondere · {_dati(len(last_found), len(elements) or len(last_found))}"
+                    if elements else "Evidenze giudicate sufficienti per rispondere")
 
     steps: list[dict[str, str]] = []
     if asked:
@@ -101,25 +111,35 @@ def summarize_run(run: dict[str, Any], parent: dict[str, Any] | None = None) -> 
     if understood:
         steps.append({"icon": "🧭", "text": f"Interpreta «{_short(question, 30)}» → «{_short(planned, 60)}»",
                       "ms": _fmt_ms(plan.get("duration_ms"))})
+    if len(plan.get("sub_queries") or []) > 1:
+        steps.append({"icon": "🧭", "text": f"Divide la domanda in {len(plan['sub_queries'])} ricerche",
+                      "ms": _fmt_ms(plan.get("duration_ms"))})
     grade_by_iteration = {g.get("iteration"): g for g in gradings}
-    for search in searches:
+    for index, search in enumerate(searches):
         it = search.get("iteration", 1)
-        label = "Ricerca nei documenti" if it == 1 else f"Ricerca mirata: «{_short(search.get('search_query'), 50)}»"
+        if search.get("parts", 1) > 1:
+            label = f"Ricerca {search.get('part')}/{search.get('parts')}: «{_short(search.get('search_query'), 50)}»"
+        else:
+            label = "Ricerca nei documenti" if it == 1 else f"Ricerca mirata: «{_short(search.get('search_query'), 50)}»"
         steps.append({"icon": "🔍", "text": label, "ms": _fmt_ms(search.get("duration_ms"))})
-        grade = grade_by_iteration.get(it)
+        # La valutazione arriva dopo l'ultima ricerca del suo giro, non dopo ciascuna.
+        last_of_round = index + 1 == len(searches) or searches[index + 1].get("iteration", 1) != it
+        grade = grade_by_iteration.get(it) if last_of_round else None
         if grade:
             found = [e for e in grade.get("elements") or [] if e.get("found")]
             total = len(grade.get("elements") or [])
-            text = (f"Controlla le prove: {_dati(len(found), total)} trovati" if total
-                    else ("Controlla le prove: sufficienti" if grade.get("sufficient") else "Controlla le prove: incomplete"))
+            text = (f"Valuta la copertura delle evidenze: {len(found)}/{total}" if total
+                    else ("Valuta le evidenze: sufficienti" if grade.get("sufficient") else "Valuta le evidenze: incomplete"))
             steps.append({"icon": "✅" if grade.get("sufficient") else "⚠️", "text": text,
                           "ms": _fmt_ms(grade.get("duration_ms"))})
     if clarification:
         steps.append({"icon": "❓", "text": "Valori diversi per anno: si ferma e ti chiede quale", "ms": ""})
     elif decision.get("reason") == "off_topic":
         steps.append({"icon": "🚫", "text": "Pertinenza sotto la soglia: nessuna risposta inventata", "ms": ""})
+    elif ((answer or {}).get("diagnostics") or {}).get("block_reason") == "not_in_documents":
+        steps.append({"icon": "🚫", "text": "Nessun elemento trovato nei documenti: nessuna risposta inventata", "ms": ""})
     elif answer and answer.get("status") != "needs_input":
-        steps.append({"icon": "💬", "text": "Scrive la risposta citando le fonti", "ms": _fmt_ms(answer.get("duration_ms"))})
+        steps.append({"icon": "💬", "text": "Genera la risposta con citazioni", "ms": _fmt_ms(answer.get("duration_ms"))})
 
     total_ms = sum(e.get("duration_ms") or 0 for e in events)
     model_calls = (0 if plan.get("planner_skipped") or not plan else 1) + len(gradings) + (answer.get("attempts") or 0)

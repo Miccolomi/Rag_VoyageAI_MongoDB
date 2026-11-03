@@ -670,7 +670,7 @@ Limiti voluti per la demo:
 ## Struttura del progetto
 
 - `server.py`: server web (Starlette), API JSON e flussi di eventi.
-- `web/`: le pagine (`index.html`, `style.css`, `app.js`) e il diagramma dell'architettura.
+- `web/`: le pagine (`index.html`, `style.css`, `app.js`).
 - `src/web_services.py`: servizi delle pagine (Query passo per passo, Upload, Admin, verifica componenti).
 - `src/agent.py`, `src/agentic_search.py`, `src/agentic_memory.py`: ricerca agentica e sua memoria in MongoDB.
 - `src/retrieval_details.py`: identità dei passaggi e lettura delle posizioni nella fusione.

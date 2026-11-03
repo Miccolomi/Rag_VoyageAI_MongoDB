@@ -94,3 +94,19 @@ def test_deduplica_disattivabile(monkeypatch):
     pipeline = build_pipeline("q", top_k=10, embed_mode="all", modes=MODES, query_vectors=VECTORS)
     names = _stage_names(pipeline)
     assert "$group" not in names and names[-2:] == ["$limit", "$project"]
+
+
+def test_filtro_della_modalita_non_ripetuto_nel_ramo_vettoriale():
+    from src import retrieval
+    pipe = retrieval.build_pipeline("capex", embed_mode="auto")
+    stage = pipe[0]["$rankFusion"]["input"]["pipelines"]["vector"][0]["$vectorSearch"]
+    assert stage["filter"] == {"embedding_mode": "auto"}
+    pipe = retrieval.build_pipeline("capex", embed_mode="auto", filters={"year": 2018})
+    stage = pipe[0]["$rankFusion"]["input"]["pipelines"]["vector"][0]["$vectorSearch"]
+    assert stage["filter"] == {"$and": [{"year": 2018}, {"embedding_mode": "auto"}]}
+
+
+def test_pesi_uguali_con_piu_modalita(monkeypatch):
+    # Con "balanced" il testo a peso 2 escludeva tutti i risultati semantici dai primi k.
+    monkeypatch.setattr(config, "HYBRID_TEXT_WEIGHT_MODE", "equal")
+    assert set(fusion_weights(["vector_auto", "vector_manual", "text"]).values()) == {1.0}

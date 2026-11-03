@@ -74,3 +74,35 @@ def test_risposta_troncata(monkeypatch):
     monkeypatch.setattr(ai_gateway.httpx, "post", lambda *a, **k: _Resp(200, {
         **OK, "status": "incomplete", "incomplete_details": {"reason": "max_output_tokens"}}))
     assert ai_gateway.respond("s", "u", model="m", max_tokens=10)["truncated"]
+
+
+def test_400_senza_parametro_riprova_con_richiesta_minima(monkeypatch):
+    sent = []
+
+    def post(url, json=None, **k):
+        sent.append(json)
+        if any(name in json for name in ("temperature", "reasoning", "text")):
+            return _Resp(400, {"error": {"message": "Invalid request for this model"}})
+        return _Resp(200, OK)
+    monkeypatch.setattr(ai_gateway.httpx, "post", post)
+    assert ai_gateway.respond("s", "u", model="m", max_tokens=10, json_mode=True)["answer"] == "ok [#1]"
+    assert not any(name in sent[-1] for name in ("temperature", "reasoning", "text"))
+
+
+def test_400_mostra_il_motivo_del_gateway(monkeypatch):
+    monkeypatch.setattr(ai_gateway.httpx, "post", lambda *a, **k: _Resp(400, {"error": {"message": "The model gpt-x does not exist"}}))
+    with pytest.raises(RuntimeError, match="does not exist"):
+        ai_gateway.respond("s", "u", model="gpt-x", max_tokens=10)
+
+
+def test_parametro_citato_senza_virgolette(monkeypatch):
+    sent = []
+
+    def post(url, json=None, **k):
+        sent.append(json)
+        if "reasoning" in json:
+            return _Resp(400, {"error": {"message": "reasoning.effort is not supported with this model"}})
+        return _Resp(200, OK)
+    monkeypatch.setattr(ai_gateway.httpx, "post", post)
+    ai_gateway.respond("s", "u", model="m", max_tokens=10)
+    assert "reasoning" not in sent[-1] and "temperature" in sent[-1]

@@ -110,3 +110,25 @@ def test_pdf_reale_auto_e_multimodal(tmp_path, monkeypatch):
     assert mm["chunks_by_type"] == {"visual_page": 3}
     # stesso file GridFS condiviso tra le modalità
     assert auto["storage"]["gridfs_file_id"] == mm["storage"]["gridfs_file_id"]
+
+
+def test_chunking_settings_defaults_and_limits():
+    import pytest
+    from src import config
+    from src.ingestion import chunking_settings
+    assert chunking_settings(None) == {"strategy": "structure", "size": config.CHUNK_SIZE_TOKENS,
+                                       "overlap": config.CHUNK_OVERLAP_TOKENS}
+    assert chunking_settings({"strategy": "fixed", "size": 256, "overlap": 0})["overlap"] == 0
+    for bad in ({"strategy": "semantic"}, {"size": 64}, {"size": 256, "overlap": 200}):
+        with pytest.raises(ValueError):
+            chunking_settings(bad)
+
+
+def test_build_chunks_fixed_window_uses_overlap():
+    from src.ingestion import _TOKENIZER, build_chunks
+    text = " ".join(f"parola{i}" for i in range(600))
+    page = {"page_number": 1, "text": text, "tables": [], "content_type": "text"}
+    chunks = build_chunks([page], size=256, overlap=32, strategy="fixed")
+    assert len(chunks) > 1
+    first, second = (_TOKENIZER.encode(c["content"]) for c in chunks[:2])
+    assert len(first) <= 256 and first[-32:] == second[:32]

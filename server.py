@@ -28,6 +28,15 @@ from src import agent, agentic_memory, config, field_encryption, search_scope, w
 WEB = Path(__file__).resolve().parent / "web"
 
 
+class WebFiles(StaticFiles):
+    """File della pagina sempre riconvalidati: dopo una modifica il browser non usa la copia vecchia."""
+
+    async def get_response(self, path: str, scope) -> Response:
+        response = await super().get_response(path, scope)
+        response.headers["Cache-Control"] = "no-cache"
+        return response
+
+
 def _default(value: Any) -> Any:
     if isinstance(value, (datetime, date)):
         return value.isoformat()
@@ -98,13 +107,25 @@ def api_file(request: Request) -> Response:
 
 # ─── Query ───────────────────────────────────────────────────────────────
 
+def _search_mode(body: dict) -> str:
+    """Modalità di ricerca scelta nella pagina; senza scelta, quella predefinita salvata."""
+    mode = body.get("mode") or search_scope.load_active_mode(config.EMBED_MODE)
+    if mode not in search_scope.SEARCH_MODES:
+        raise ValueError(f"Modalità di ricerca sconosciuta: {mode}")
+    return mode
+
+
 async def api_query(request: Request) -> Response:
     body = await request.json()
     question = (body.get("question") or "").strip()
     if not question:
         return _json({"error": "Scrivi una domanda."}, 400)
+    try:
+        mode = _search_mode(body)
+    except ValueError as exc:
+        return _json({"error": str(exc)}, 400)
     return _stream(web_services.run_query(
-        question, filters=web_services.build_filters(body.get("filters")), top_k=body.get("top_k"),
+        question, mode=mode, filters=web_services.build_filters(body.get("filters")), top_k=body.get("top_k"),
         top_n=body.get("top_n"), rerank_instructions=body.get("rerank_instructions") or "",
         fuzzy=bool(body.get("fuzzy")), threshold=body.get("threshold")))
 
@@ -113,7 +134,7 @@ async def api_query_compare(request: Request) -> Response:
     body = await request.json()
     try:
         return _json(web_services.query_comparisons(
-            body["question"], filters=web_services.build_filters(body.get("filters")),
+            body["question"], filters=web_services.build_filters(body.get("filters")), mode=_search_mode(body),
             top_k=body.get("top_k") or config.RETRIEVAL_TOP_K, fuzzy=bool(body.get("fuzzy"))))
     except Exception as exc:
         return _json({"error": web_services.public_error(exc)}, 500)
@@ -224,6 +245,10 @@ async def api_agent(request: Request) -> Response:
     question = (body.get("question") or "").strip()
     if not question:
         return _json({"error": "Scrivi una domanda."}, 400)
+    try:
+        mode = _search_mode(body)
+    except ValueError as exc:
+        return _json({"error": str(exc)}, 400)
     clarification = body.get("clarification") or {}
     started = time.perf_counter()
     memory, summaries = agent.planning_context(sessions, session_id)
@@ -234,12 +259,12 @@ async def api_agent(request: Request) -> Response:
     req = agent.AgentRequest(
         session_id=session_id, question=question,
         top_k=int(body.get("top_k") or config.AGENT_TOP_K), top_n=int(body.get("top_n") or config.RERANK_TOP_N),
-        retries=int(body.get("retries", 1)), filters=filters,
+        retries=max(0, min(int(body.get("retries", 5)), 5)), filters=filters,
         rerank_instructions=body.get("rerank_instructions") or "",
         feedback_context=clarification.get("context") or body.get("feedback_context") or "",
         parent_run_id=clarification.get("parent_run_id") or body.get("parent_run_id"),
         is_clarification=bool(clarification), skip_ambiguity=bool(clarification.get("skip_ambiguity")),
-        embed_mode=search_scope.load_active_mode(config.EMBED_MODE),
+        embed_mode=mode,
         planning_memory=memory, planning_summaries=summaries, memory_read_ms=memory_ms)
 
     def events():
@@ -257,7 +282,12 @@ async def api_upload(request: Request) -> Response:
     files = [(f.filename, await f.read()) for f in form.getlist("files") if getattr(f, "filename", None)]
     if not files:
         return _json({"error": "Nessun file selezionato."}, 400)
-    return _stream(web_services.ingest_files(files, mode=mode, metadata=metadata,
+    try:
+        chunking = json.loads(form.get("chunking") or "{}")
+        web_services.chunking_check(chunking)
+    except (ValueError, TypeError) as exc:
+        return _json({"error": str(exc)}, 400)
+    return _stream(web_services.ingest_files(files, mode=mode, metadata=metadata, chunking=chunking,
                                              storage=form.get("storage") or "gridfs"))
 
 
@@ -268,7 +298,11 @@ def api_documents(request: Request) -> Response:
 
 
 def api_delete_document(request: Request) -> Response:
-    return _json(web_services.delete_document(request.path_params["document_id"]))
+    try:
+        return _json(web_services.delete_document(request.path_params["document_id"],
+                                                  request.query_params.get("mode") or None))
+    except ValueError as exc:
+        return _json({"error": str(exc)}, 400)
 
 
 def api_delete_all(request: Request) -> Response:
@@ -330,7 +364,7 @@ routes = [
     Route("/api/admin/mode", api_active_mode, methods=["POST"]),
     Route("/api/admin/setup", api_setup, methods=["POST"]),
     Route("/api/admin/reset", api_reset, methods=["POST"]),
-    Mount("/web", StaticFiles(directory=WEB), name="web"),
+    Mount("/web", WebFiles(directory=WEB), name="web"),
 ]
 
 app = Starlette(routes=routes)

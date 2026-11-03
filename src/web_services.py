@@ -78,15 +78,20 @@ def info() -> dict[str, Any]:
                                               "multimodal": config.VOYAGE_MULTIMODAL_MODEL}.get(mode),
                               "modes": {m: search_scope.MODE_DESCRIPTIONS[m][0] for m in EMBED_MODES},
                               "models": {"embed": config.VOYAGE_EMBED_MODEL, "context": config.VOYAGE_CONTEXT_MODEL,
-                                         "multimodal": config.VOYAGE_MULTIMODAL_MODEL, "rerank": config.VOYAGE_RERANK_MODEL}}
+                                         "multimodal": config.VOYAGE_MULTIMODAL_MODEL, "rerank": config.VOYAGE_RERANK_MODEL},
+                              "embed_dimensions": config.VOYAGE_EMBED_DIMENSIONS,
+                              "chunking": {"strategy": "structure", "size": config.CHUNK_SIZE_TOKENS,
+                                           "overlap": config.CHUNK_OVERLAP_TOKENS}}
     try:
         config.get_db().command("ping")
         scope = search_scope.inspect_scope(mode)
         status["atlas"] = "ok"
         status["counts"] = {row["Modalità"]: row["Chunk presenti"] for row in scope["rows"]}
+        status["documents"] = len(config.get_collection().distinct("document_id", {"embedding_mode": mode}))
         status["indexes"] = [{"mode": row["Modalità"], "name": row["Indice vettoriale"], "status": row["Stato indice"],
                               "model": row["Modello"]} for row in scope["rows"]]
         status["unavailable"] = scope["unavailable"]
+        status["text_index"] = {"name": scope["text_index"], "status": scope.get("text_index_status", "MANCANTE")}
         status["ready"] = bool(status["counts"].get(mode)) and not scope["unavailable"]
     except Exception as exc:
         status.update({"atlas": public_error(exc, 200), "ready": False, "counts": {}})
@@ -219,14 +224,14 @@ def _passage_view(doc: dict, *, cited: set[int] | None = None, number: int | Non
 
 
 def run_query(question: str, *, filters: dict | None = None, top_k: int | None = None, top_n: int | None = None,
-              rerank_instructions: str = "", fuzzy: bool = False,
+              rerank_instructions: str = "", fuzzy: bool = False, mode: str | None = None,
               threshold: float | None = None) -> Iterator[dict[str, Any]]:
     """Esegue la Query e restituisce un evento per passo, poi il risultato completo."""
     top_k = top_k or config.RETRIEVAL_TOP_K
     top_n = top_n or config.RERANK_TOP_N
     threshold = config.RERANK_RELEVANCE_THRESHOLD if threshold is None else threshold
     timings: dict[str, float] = {}
-    mode = search_scope.load_active_mode(config.EMBED_MODE)
+    mode = mode or search_scope.load_active_mode(config.EMBED_MODE)
     try:
         scope = search_scope.require_scope(mode)
     except Exception as exc:
@@ -274,8 +279,8 @@ def run_query(question: str, *, filters: dict | None = None, top_k: int | None =
     yield {"type": "retrieval", **retrieval}
     if isinstance(top_score, (int, float)) and top_score < threshold:
         yield {"type": "result", "status": "off_topic", "question": question, "timings": timings,
-               "message": f"Domanda fuori tema: il passaggio migliore ha {top_score:.3f}, sotto la soglia {threshold:.2f}. "
-                          "Il modello non viene chiamato.", **retrieval}
+               "message": f"Nessun passaggio abbastanza pertinente: il migliore ha un punteggio di reranking di {top_score:.3f}, "
+                          f"sotto la soglia {threshold:.2f}. Il modello non viene chiamato.", **retrieval}
         return
     if not llm_available():
         yield {"type": "error", "message": "Il modello configurato non è disponibile."}
@@ -299,10 +304,11 @@ def run_query(question: str, *, filters: dict | None = None, top_k: int | None =
            "timings": timings, **retrieval}
 
 
-def query_comparisons(question: str, *, filters: dict | None, top_k: int, fuzzy: bool = False) -> dict[str, Any]:
+def query_comparisons(question: str, *, filters: dict | None, top_k: int, fuzzy: bool = False,
+                      mode: str | None = None) -> dict[str, Any]:
     """Classifiche separate dei motori (solo testo, solo vettori), per spiegare la fusione."""
     coll = config.get_collection()
-    mode = search_scope.load_active_mode(config.EMBED_MODE)
+    mode = mode or search_scope.load_active_mode(config.EMBED_MODE)
     scope = search_scope.require_scope(mode)
     modes = scope["modes"]
     vectors = search_scope.prepare_vectors(question, modes)
@@ -330,9 +336,9 @@ def run_verdict(run: dict, answer: str, sources: list[dict]) -> dict[str, Any]:
     events = run.get("events", [])
     grade = next((e for e in reversed(events) if e.get("type") == "grading"), None)
     answer_event = next((e for e in reversed(events) if e.get("type") == "answer"), {})
-    rows = answer_event.get("citation_check")
-    if rows is None:
-        rows = check_citations(answer, [{**s, "page_number": s.get("page")} for s in sources])
+    # Ricalcolato dalle fonti salvate: le ricerche già fatte beneficiano dei controlli aggiornati.
+    rows = check_citations(answer, [{**s, "page_number": s.get("page")} for s in sources]) if sources \
+        else (answer_event.get("citation_check") or [])
     risks = []
     if not grade or not grade.get("evaluated", True):
         risks.append("la valutazione delle prove non è riuscita")
@@ -343,15 +349,15 @@ def run_verdict(run: dict, answer: str, sources: list[dict]) -> dict[str, Any]:
     not_found = [r["claim"] for r in rows if r["status"] == "not_found"]
     uncited = [r["claim"] for r in rows if r["status"] == "uncited"]
     if not_found:
-        risks.append(f"{len(not_found)} numeri non compaiono nel passaggio citato ({', '.join(not_found[:4])})")
+        risks.append("Numeri non trovati nel passaggio citato: " + ", ".join(not_found[:4]))
     if uncited:
-        risks.append(f"{len(uncited)} numeri senza citazione ({', '.join(uncited[:4])})")
+        risks.append("Numeri senza citazione: " + ", ".join(uncited[:4]))
     elements = (grade or {}).get("elements") or []
     found_el = [e for e in elements if e.get("found")]
     gaps = [e.get("element") for e in elements if not e.get("found")]
     searches = sum(e.get("type") == "retrieval" for e in events)
     checked = len(rows) - len(uncited)
-    found_numbers = sum(r["status"] in {"found", "rounded"} for r in rows)
+    found_numbers = sum(r["status"] in {"found", "rounded", "computed"} for r in rows)
     if risks:
         return {"kind": "risk", "label": "Da verificare", "notes": risks, "rows": rows}
     if grade and elements and not found_el and found_numbers:
@@ -359,14 +365,20 @@ def run_verdict(run: dict, answer: str, sources: list[dict]) -> dict[str, Any]:
                 "notes": [f"I {found_numbers} numeri riportati sono nelle fonti citate; il valutatore non li considera "
                           "una risposta completa a: " + "; ".join(gaps)]}
     if grade and elements and not found_el:
-        return {"kind": "absent", "label": "Non presente nei documenti", "rows": rows,
-                "notes": [f"L’agente ha cercato {searches} {'volta' if searches == 1 else 'volte'}: i documenti non "
-                          "contengono questi dati e l’agente non risponde a memoria."]}
+        return {"kind": "absent", "label": "Non trovato nelle ricerche", "rows": rows,
+                "notes": [f"L’agente ha cercato {searches} {'volta' if searches == 1 else 'volte'} senza trovare questi dati "
+                          "nei passaggi recuperati, e non risponde a memoria. Non significa che i documenti non li contengano."]}
     if gaps:
-        return {"kind": "partial", "label": f"Parziale: {len(found_el)} dati su {len(elements)} nei documenti",
-                "rows": rows, "notes": ["I numeri riportati sono verificati; i documenti non contengono: " + "; ".join(gaps)]}
-    label = (f"Verificata: {found_numbers} numeri su {checked} trovati nelle fonti" if checked
-             else "Verificata: prove trovate dal valutatore")
+        return {"kind": "partial", "label": f"Parziale · copertura {len(found_el)}/{len(elements)}",
+                "rows": rows, "notes": [f"I numeri riportati sono verificati. Non trovato nelle {searches} "
+                                        f"{'ricerca' if searches == 1 else 'ricerche'} eseguite: " + "; ".join(gaps)
+                                        + ". Con più ricerche supplementari l’agente potrebbe trovarlo."]}
+    label = (f"Riscontri numerici nelle fonti citate · {found_numbers}/{checked}" if checked
+             else "Evidenze confermate dal valutatore")
+    computed = [f"{r['claim']} = {r['formula']}" for r in rows if r["status"] == "computed"]
+    if computed:
+        return {"kind": "ok", "label": label, "rows": rows,
+                "notes": ["Valori calcolati dalla risposta a partire dalle fonti: " + "; ".join(computed)]}
     return {"kind": "ok", "label": label, "notes": [], "rows": rows}
 
 
@@ -387,13 +399,19 @@ def run_view(run: dict, parent: dict | None = None) -> dict[str, Any]:
 
 # ─── Upload ──────────────────────────────────────────────────────────────
 
+def chunking_check(values: dict[str, Any]) -> dict[str, Any]:
+    """Valida i parametri di chunking prima di aprire il flusso del caricamento."""
+    from .ingestion import chunking_settings
+    return chunking_settings(values)
+
+
 def ingest_files(files: list[tuple[str, bytes]], *, mode: str, metadata: dict[str, Any],
-                 storage: str = "gridfs") -> Iterator[dict[str, Any]]:
-    from .ingestion import ingest_pdf
+                 storage: str = "gridfs", chunking: dict[str, Any] | None = None) -> Iterator[dict[str, Any]]:
+    from .ingestion import chunking_settings, ingest_pdf
     if mode not in EMBED_MODES:
         raise ValueError(f"Modalità sconosciuta: {mode}")
-    search_scope.save_active_mode(mode)
-    yield {"type": "start", "total": len(files), "mode": mode}
+    chunking = chunking_settings(chunking)
+    yield {"type": "start", "total": len(files), "mode": mode, "chunking": chunking}
     for number, (name, data) in enumerate(files, start=1):
         filename = Path(name.replace("\\", "/")).name
         started = time.perf_counter()
@@ -406,7 +424,7 @@ def ingest_files(files: list[tuple[str, bytes]], *, mode: str, metadata: dict[st
                 path = Path(temp_dir) / filename
                 path.write_bytes(data)
                 summary = ingest_pdf(path, db=config.get_db(), collection=config.get_collection(), storage=storage,
-                                     mode=mode, user_metadata={**metadata, "file_type": path.suffix.lstrip(".").lower() or "pdf"})
+                                     mode=mode, chunking=chunking, user_metadata={**metadata, "file_type": path.suffix.lstrip(".").lower() or "pdf"})
             skipped = summary.get("skipped", False)
             chunks = summary.get("chunks_inserted", 0)
             row.update({"outcome": "skipped" if skipped else "inserted" if chunks else "error",
@@ -423,21 +441,33 @@ def ingest_files(files: list[tuple[str, bytes]], *, mode: str, metadata: dict[st
 # ─── Admin ───────────────────────────────────────────────────────────────
 
 def documents() -> list[dict[str, Any]]:
+    """Un documento per riga, con passaggi e data di caricamento per ogni modalità (`by_mode`)."""
     rows = config.get_collection().aggregate([
-        {"$group": {"_id": "$document_id", "filename": {"$first": "$filename"}, "title": {"$first": "$title"},
+        {"$group": {"_id": {"doc": "$document_id", "mode": "$embedding_mode"},
+                    "filename": {"$first": "$filename"}, "title": {"$first": "$title"},
                     "author": {"$first": "$author"}, "ingested_at": {"$max": "$ingested_at"}, "chunks": {"$sum": 1},
                     "gridfs_file_id": {"$first": "$gridfs_file_id"}, "file_type": {"$first": "$file_type"},
-                    "total_pages": {"$first": "$total_pages"}, "modes": {"$addToSet": "$embedding_mode"}}},
+                    "total_pages": {"$first": "$total_pages"}}},
+        {"$group": {"_id": "$_id.doc", "filename": {"$first": "$filename"}, "title": {"$first": "$title"},
+                    "author": {"$first": "$author"}, "ingested_at": {"$max": "$ingested_at"}, "chunks": {"$sum": "$chunks"},
+                    "gridfs_file_id": {"$first": "$gridfs_file_id"}, "file_type": {"$first": "$file_type"},
+                    "total_pages": {"$first": "$total_pages"}, "modes": {"$addToSet": "$_id.mode"},
+                    "by_mode": {"$push": {"mode": "$_id.mode", "chunks": "$chunks", "ingested_at": "$ingested_at"}}}},
         {"$sort": {"ingested_at": -1}},
     ])
     return [{**r, "gridfs_file_id": str(r["gridfs_file_id"]) if r.get("gridfs_file_id") else None} for r in rows]
 
 
-def delete_document(document_id: str) -> dict[str, Any]:
+def delete_document(document_id: str, mode: str | None = None) -> dict[str, Any]:
+    """Elimina i passaggi del documento (solo di una modalità, se indicata).
+    Il file originale in GridFS si elimina solo quando non resta nessun passaggio che lo usa."""
     coll = config.get_collection()
+    if mode is not None and mode not in EMBED_MODES:
+        raise ValueError(f"Modalità sconosciuta: {mode}")
     first = coll.find_one({"document_id": document_id}, {"gridfs_file_id": 1}) or {}
-    deleted = coll.delete_many({"document_id": document_id}).deleted_count
-    if first.get("gridfs_file_id"):
+    query = {"document_id": document_id, **({"embedding_mode": mode} if mode else {})}
+    deleted = coll.delete_many(query).deleted_count
+    if first.get("gridfs_file_id") and not coll.count_documents({"document_id": document_id}, limit=1):
         try:
             GridFS(config.get_db(), collection=config.MONGODB_GRIDFS_BUCKET).delete(ObjectId(str(first["gridfs_file_id"])))
         except Exception:

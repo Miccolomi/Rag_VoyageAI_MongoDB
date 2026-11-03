@@ -321,7 +321,7 @@ see only binary data (BSON subtype 6); the application, which holds the key, rea
 ## Project structure
 
 - `server.py`: web server (Starlette), JSON APIs and event streams.
-- `web/`: the pages (`index.html`, `style.css`, `app.js`) and the architecture diagram.
+- `web/`: the pages (`index.html`, `style.css`, `app.js`).
 - `src/web_services.py`: page services (step-by-step Query, Upload, Admin, health checks).
 - `src/agent.py`, `src/agentic_search.py`, `src/agentic_memory.py`: agentic search and its MongoDB memory.
 - `src/retrieval_details.py`: passage identity and fusion branch ranks.

@@ -80,11 +80,11 @@ def _vector_stage(
         # Se disponibile, riusa lo stesso vettore tra retrieval e visualizzazione
         # della pipeline; altrimenti lo calcola qui.
         base["queryVector"] = query_vector or embed_query(query, embed_mode)
+    # Ogni ramo cerca solo nella sua modalità: il filtro sulla modalità sostituisce quello
+    # generale (che può elencarne più d'una), senza ripeterlo due volte nello stesso $and.
     mode_filter = {"embedding_mode": embed_mode}
-    if filters:
-        base["filter"] = {"$and": [filters, mode_filter]}
-    else:
-        base["filter"] = mode_filter
+    other = {key: value for key, value in (filters or {}).items() if key != "embedding_mode"}
+    base["filter"] = {"$and": [other, mode_filter]} if other else mode_filter
     return {"$vectorSearch": base}
 
 

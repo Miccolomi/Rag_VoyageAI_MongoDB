@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>RAG Demo · MongoDB Atlas</title>
+  <title>RAG Demo · MongoDB</title>
   <link rel="stylesheet" href="/web/style.css">
 </head>
 <body>
@@ -11,7 +11,7 @@
     <div class="brand">
       <span class="logo" aria-hidden="true">◆</span>
       <div>
-        <div class="brand-title">RAG Demo · MongoDB Atlas + Voyage AI</div>
+        <div class="brand-title">RAG Demo · MongoDB + Voyage AI</div>
         <div class="brand-meta" id="meta">Connessione in corso…</div>
       </div>
     </div>
@@ -20,7 +20,7 @@
   <div id="health" class="health-panel" hidden></div>
 
   <nav class="tabs" id="tabs">
-    <a href="#mongodb" data-page="mongodb">MongoDB dettagli</a>
+    <a href="#mongodb" data-page="mongodb">MongoDB</a>
     <a href="#come" data-page="come">Come funziona</a>
     <a href="#upload" data-page="upload">Upload</a>
     <a href="#query" data-page="query">Query</a>
@@ -32,192 +32,263 @@
 
   <template id="tpl-come">
     <section class="hero">
-      <h1>Dai documenti a una risposta verificabile</h1>
-      <p class="lead">I documenti vengono spezzati in passaggi e indicizzati in MongoDB Atlas. A ogni domanda Atlas
-        cerca per parole e per significato nella stessa pipeline, fonde le classifiche e le riordina con il reranker
-        di Voyage AI. Il modello scrive la risposta citando solo quei passaggi.</p>
+      <h1>Dai documenti alla conoscenza, fino a risposte verificabili</h1>
+      <p class="lead">Documenti di formati diversi diventano una base di conoscenza che si interroga in linguaggio naturale.
+        A ogni domanda il sistema cerca per parole e per significato, unisce i risultati, li riordina con Voyage AI e
+        il modello risponde citando le fonti originali.</p>
     </section>
-    <div class="arch-head"><h2>L’architettura della demo</h2>
-      <a href="/web/architettura.html" target="_blank" class="small">Apri a tutto schermo ↗</a></div>
-    <p class="muted small" style="margin-top:0">Ricavata dal codice dell’applicazione. Passa sopra a un componente per vedere cosa fa; usa “Percorso” per seguire una domanda, il caricamento o la memoria dell’agente.</p>
-    <iframe class="arch-frame" src="/web/architettura.html" title="Architettura della demo" loading="lazy"></iframe>
-    <div class="grid2">
-      <div class="card">
-        <h3>Query · la RAG classica</h3>
-        <p>Una ricerca, una risposta. Mostra passo per passo cosa fa Atlas: i due motori, la fusione delle
-          classifiche, il reranking e quali passaggi arrivano al modello.</p>
-      </div>
-      <div class="card">
-        <h3>Ricerca agentica · controlla prima di rispondere</h3>
-        <p>L’agente cerca, verifica che le prove coprano ogni dato richiesto, cerca di nuovo ciò che manca, chiede
-          quando i documenti danno valori diversi per anni diversi e non risponde a memoria.</p>
-      </div>
+    <div class="platform-msg">
+      <b>MongoDB non è solo il database che alimenta il RAG.</b> È la piattaforma su cui convergono dati, metadati,
+      ricerca testuale e ricerca semantica, e da cui l’agente prende gli strumenti per recuperare e usare la conoscenza:
+      niente motori di ricerca separati da sincronizzare.
     </div>
+
+    <h2>Tre percorsi, un’unica piattaforma</h2>
+    <p class="muted small" style="margin-top:0">Verde: avviene dentro MongoDB · viola: modelli Voyage AI · arancione: il modello che scrive la risposta.</p>
+
+    <section class="flow flow-main">
+      <div class="flow-name"><b>1 · La domanda</b><span>pagina Query · la qualità della risposta nasce dalla qualità del recupero</span></div>
+      <div class="flow-row">
+        <div class="fs"><b>Domanda</b><span>in linguaggio naturale, con filtri facoltativi</span></div>
+        <div class="fa">→</div>
+        <div class="fs-pair">
+          <div class="fs db"><b>Per parole</b><span><code>$search</code></span></div>
+          <div class="fs db"><b>Per significato</b><span><code>$vectorSearch</code></span></div>
+        </div>
+        <div class="fa">→</div>
+        <div class="fs db"><b>Rank Fusion</b><span><code>$rankFusion</code></span></div>
+        <div class="fa">→</div>
+        <div class="fs vo"><b>Reranking</b><span><code>$rerank</code> con Voyage AI</span></div>
+        <div class="fa">→</div>
+        <div class="fs llm"><b>Risposta</b><span>con le fonti citate</span></div>
+      </div>
+      <div class="why-grid">
+        <div class="why-x db"><b>Ricerca ibrida</b><span>Le parole trovano codici, sigle e nomi esatti; i vettori trovano lo stesso concetto detto in altro modo, anche in un’altra lingua. Da sole sbagliano in modi diversi: insieme si coprono a vicenda.</span></div>
+        <div class="why-x db"><b>Rank Fusion</b><span>Le due classifiche diventano una sola, per posizione: un chunk in alto in entrambe sale. Lo fa MongoDB nella stessa aggregazione, senza codice di fusione nell’applicazione.</span></div>
+        <div class="why-x vo"><b>Reranking</b><span>Il reranker rilegge domanda e candidati insieme e mette in cima quelli che rispondono davvero. Al modello arrivano pochi chunk, i migliori: risposte più precise e meno testo da pagare.</span></div>
+        <div class="why-x llm"><b>Risposta verificabile</b><span>Il modello genera una risposta basata sui passaggi selezionati e li cita. La demo prevede controlli di riscontro sui valori; quando il recupero non supera la soglia di pertinenza, può evitare la chiamata al modello.</span></div>
+      </div>
+    </section>
+
+    <section class="flow flow-main">
+      <div class="flow-name"><b>2 · La ricerca agentica</b><span>controlla prima di rispondere</span></div>
+      <div class="flow-row">
+        <div class="fs db"><b>Domanda e memoria</b><span>capisce le domande che si riferiscono a quelle precedenti</span></div>
+        <div class="fa">→</div>
+        <div class="fs db"><b>Cerca</b><span>la stessa ricerca ibrida, dentro MongoDB</span></div>
+        <div class="fa">→</div>
+        <div class="fs llm"><b>Verifica le evidenze</b><span>dato per dato; il valore deve comparire nel chunk indicato</span></div>
+        <div class="fa">→</div>
+        <div class="fs-pair">
+          <div class="fs alt"><b>↺ Manca un dato</b><span>nuova ricerca solo su quello</span></div>
+          <div class="fs alt"><b>? Dato ambiguo</b><span>valori diversi in periodi diversi: chiede quale</span></div>
+        </div>
+        <div class="fa">→</div>
+        <div class="fs llm"><b>Risposta</b><span>con fonti verificate, dichiarando ciò che non ha trovato</span></div>
+        <div class="fa">→</div>
+        <div class="fs db"><b>Memoria</b><span>passi e decisioni salvati; prima domanda cifrata 🔒</span></div>
+      </div>
+      <p class="flow-note">Ogni passo resta in MongoDB: la risposta si ricostruisce dalla domanda alle fonti, un requisito per audit e governance.</p>
+    </section>
+
+    <section class="flow">
+      <div class="flow-name"><b>3 · Il caricamento</b><span>pagina Upload · come si costruisce la conoscenza</span></div>
+      <div class="flow-row">
+        <div class="fs"><b>Documenti</b><span>PDF, Word, PowerPoint, Excel</span></div>
+        <div class="fa">→</div>
+        <div class="fs"><b>Estrazione del testo</b><span>titoli, paragrafi e tabelle con le colonne; OCR sulle pagine scansionate</span></div>
+        <div class="fa">→</div>
+        <div class="fs"><b>Chunking</b><span>chunk di circa 512 token entro la pagina; una tabella non si spezza a metà riga</span></div>
+        <div class="fa">→</div>
+        <div class="fs db"><b>MongoDB</b><span>ogni chunk diventa un documento MongoDB con metadati e riferimento alla fonte; l’originale può stare in GridFS o object storage</span></div>
+        <div class="fa">→</div>
+        <div class="fs vo"><b>Vettori Voyage AI</b><span>secondo la strategia scelta, qui sotto</span></div>
+      </div>
+      <h3 class="modes-title">Quattro strategie di indicizzazione</h3>
+      <div class="modes">
+        <div class="mode-x"><code class="mode-b">auto</code>
+          <p><b>Semplicità.</b> MongoDB genera e aggiorna i vettori con <code data-model="embed">voyage</code>.</p>
+          <ul class="mode-pro"><li><b>Semplice:</b> nessun codice di embedding da scrivere e mantenere</li>
+            <li><b>Sempre allineato:</b> inserimenti e modifiche aggiornano i vettori nell’indice</li>
+            <li><b>Query in testo:</b> MongoDB calcola anche il vettore della domanda</li></ul></div>
+        <div class="mode-x"><code class="mode-b">manual</code>
+          <p><b>Controllo.</b> L’applicazione divide il testo, calcola i vettori con Voyage AI e li salva in MongoDB.</p>
+          <ul class="mode-pro"><li><b>Scelta del modello:</b> generale o di dominio (finanza, legale, codice) e numero di dimensioni del vettore</li>
+            <li><b>Chunking su misura:</b> strategia, dimensione e sovrapposizione decise dall’applicazione</li>
+            <li><b>Vettori nel documento:</b> si leggono, si riusano e si confrontano come gli altri campi</li></ul></div>
+        <div class="mode-x"><code class="mode-b">context</code>
+          <p><b>Il contesto del documento.</b> <code data-model="context">voyage-context</code> rappresenta ogni chunk insieme al resto del documento.</p>
+          <ul class="mode-pro"><li><b>Passaggi meno ambigui:</b> una frase come «i ricavi sono cresciuti» porta con sé azienda e anno del documento</li>
+            <li><b>Adatto a</b> contratti, normative, manuali; in questa demo documenti fino a circa 32.000 token</li></ul></div>
+        <div class="mode-x"><code class="mode-b">multimodal</code>
+          <p><b>Oltre il testo.</b> <code data-model="multimodal">voyage-multimodal</code> mette immagine e testo della pagina nello stesso vettore.</p>
+          <ul class="mode-pro"><li><b>Si trova anche ciò che è solo visivo:</b> grafici, schemi, slide, scansioni</li>
+            <li><b>Una pagina, un passaggio:</b> reranker e modello leggono poi il testo della pagina</li></ul></div>
+      </div>
+      <p class="flow-note">Una sola base di conoscenza, diverse rappresentazioni: cambia come l’informazione viene rappresentata e recuperata, non l’architettura. Lo stesso documento si può caricare in più modalità; in Query e Ricerca agentica scegli dove cercare, anche in tutte insieme, per confrontarle.</p>
+      <details class="vy-more">
+        <summary>I modelli Voyage AI disponibili</summary>
+        <div class="vy-grid">
+          <div class="vy"><b>Generali · serie 4</b><span><code>voyage-4-large</code> massima qualità, <code>voyage-4</code> equilibrio, <code>voyage-4-lite</code> latenza e costo, <code>voyage-4-nano</code> a pesi aperti. Multilingue; i vettori della serie 4 sono compatibili tra loro.</span></div>
+          <div class="vy"><b>Di dominio</b><span><code>voyage-finance-2</code> per documenti finanziari, <code>voyage-law-2</code> per testi legali, <code>voyage-code-4</code> per codice e documentazione tecnica.</span></div>
+          <div class="vy"><b>Contestuale</b><span><code>voyage-context-4</code>: ogni chunk rappresentato insieme al resto del documento, senza cambiare il chunking.</span></div>
+          <div class="vy"><b>Multimodale</b><span><code>voyage-multimodal-3.5</code>: testo e immagini nello stesso input, anche video. Screenshot di PDF e slide senza estrarre il testo.</span></div>
+          <div class="vy"><b>Reranker</b><span><code>rerank-3</code> massima accuratezza, <code>rerank-3-lite</code> latenza e costo.</span></div>
+          <div class="vy"><b>Dimensioni e formato</b><span>Da 256 a 2048 dimensioni, formati compatti int8 e binario: meno memoria, scegliendo quanto cedere in precisione.</span></div>
+        </div>
+        <p class="flow-note">In questa demo: <code data-model="embed">voyage</code> per i vettori, <code data-model="rerank">rerank</code> per il riordino. Il modello si cambia nella configurazione.</p>
+      </details>
+    </section>
+
     <h2>Percorso consigliato per la demo</h2>
     <ol class="steps-list">
       <li><b>Query</b> · “Dove si trovano gli stabilimenti produttivi di 3M?” → risponde con un anno solo, quello che il reranker mette in cima.</li>
       <li><b>Ricerca agentica</b>, stessa domanda → trova valori diversi in anni diversi e ti chiede quale anno vuoi.</li>
       <li>Scegli un anno, poi chiedi <b>“E nel 2017?”</b> nella stessa sessione → l’agente usa la conversazione.</li>
       <li><b>“Come si prepara la pizza napoletana?”</b> → i documenti non ne parlano: l’agente non risponde a memoria.</li>
-      <li>Premi <b>🔒 Come lo vede Atlas</b> → la prima domanda della sessione: l’applicazione la legge, in Atlas è un dato cifrato.</li>
+      <li>Premi <b>🔒 Come MongoDB conserva i dati</b> → la prima domanda della sessione: l’applicazione la legge, nel database è un dato cifrato.</li>
     </ol>
-    <h2>Perché MongoDB Atlas</h2>
-    <div class="grid3">
-      <div class="card"><h4>Un solo sistema</h4><p>Passaggi, metadati, vettori, file originali (GridFS) e memoria dell’agente nello stesso database.</p></div>
-      <div class="card"><h4>Ricerca ibrida nativa</h4><p>Ricerca testuale e vettoriale fuse con <code>$rankFusion</code> e riordinate con <code>$rerank</code> in un’unica aggregazione.</p></div>
-      <div class="card"><h4>Embedding gestiti</h4><p>Con la modalità <code>auto</code> Atlas genera e aggiorna i vettori Voyage direttamente nell’indice.</p></div>
-      <div class="card"><h4>Cifratura lato client</h4><p>La prima domanda di ogni sessione è cifrata dall’applicazione prima di partire (CSFLE): in Atlas e nei backup è un dato illeggibile.</p></div>
-    </div>
   </template>
 
 
   <template id="tpl-mongo">
     <section class="mx-hero">
       <div class="mx-eyebrow">MongoDB per l’AI generativa</div>
-      <h1>I dati, la ricerca e la memoria dell’AI<br>in un’unica piattaforma</h1>
-      <p class="mx-lead">Un’applicazione RAG o agentica ha bisogno di dati operativi, ricerca per parole, ricerca per significato,
-        riordino per pertinenza, file originali e memoria delle conversazioni. Di solito sono cinque o sei sistemi da integrare e
-        tenere sincronizzati. Con MongoDB Atlas e i modelli Voyage AI sono un solo database e una sola query.</p>
+      <h1>Dati, ricerca e memoria degli agenti.<br>Un’unica piattaforma.</h1>
+      <p class="mx-lead"><b>MongoDB unifica i dati operativi, la ricerca e la memoria degli agenti AI:</b> un’architettura
+        più semplice da sviluppare, governare e scalare, con il pieno controllo sui dati. I modelli restano una scelta libera:
+        Voyage AI per embedding e reranking, il modello linguistico che preferisci per le risposte.</p>
       <div class="mx-stats" id="mx-stats">
-        <div><b data-stat="chunks">—</b><span>passaggi indicizzati in questa demo</span></div>
-        <div><b data-stat="indexes">—</b><span>indici di ricerca sulla stessa collection</span></div>
-        <div><b>1</b><span>aggregazione: parole, significato, fusione e rerank</span></div>
-        <div><b>0</b><span>sistemi esterni da sincronizzare</span></div>
+        <div><b data-stat="documents">—</b><span>documenti finanziari pubblici</span><a class="mx-src" href="https://github.com/patronus-ai/financebench" target="_blank" rel="noopener noreferrer">FinanceBench su GitHub ↗</a></div>
+        <div><b>2</b><span>ricerche complementari: per parole e per significato</span></div>
+        <div><b>1</b><span>pipeline MongoDB per ricerca, fusione e reranking</span></div>
+        <div><b>0</b><span>database di ricerca esterni da tenere sincronizzati</span></div>
       </div>
     </section>
 
-    <h2 class="mx-h2">Meno pezzi da integrare</h2>
-    <p class="muted mx-sub">La stessa applicazione, costruita in due modi.</p>
+    <h2 class="mx-h2">Un database vettoriale o una piattaforma dati?</h2>
+    <p class="muted mx-sub">Un database vettoriale risolve una parte del problema: la ricerca per significato. Un’applicazione RAG o
+      agentica ha bisogno anche di dati operativi, documenti, ricerca per parole, memoria e permessi.</p>
     <div class="mx-arch">
       <div class="mx-arch-col">
-        <div class="mx-arch-title">Architettura tipica</div>
+        <div class="mx-arch-title">Database vettoriale e altri sistemi</div>
         <div class="mx-stack">
           <div class="mx-sys">Database operativo<span>dati e metadati</span></div>
           <div class="mx-sys">Motore full-text<span>parole, codici, sigle</span></div>
-          <div class="mx-sys">Vector database<span>ricerca per significato</span></div>
-          <div class="mx-sys">Servizio di embedding<span>pipeline da mantenere</span></div>
+          <div class="mx-sys">Database vettoriale<span>ricerca per significato</span></div>
+          <div class="mx-sys">Pipeline di embedding<span>da costruire e mantenere</span></div>
           <div class="mx-sys">Object storage<span>file originali</span></div>
-          <div class="mx-sys">Cache / store per la memoria<span>conversazioni dell’agente</span></div>
+          <div class="mx-sys">Store per la memoria<span>conversazioni dell’agente</span></div>
         </div>
         <div class="mx-pain">
-          <div>⚠ Job di sincronizzazione tra sistemi</div>
-          <div>⚠ Dati che si disallineano: il vettore non corrisponde più al testo</div>
-          <div>⚠ Sicurezza, backup e accessi da gestire per ogni sistema</div>
-          <div>⚠ La fusione dei risultati si scrive a mano nell’applicazione</div>
+          <div>⚠ Copie degli stessi dati in più sistemi, da sincronizzare</div>
+          <div>⚠ Il vettore può non corrispondere più al testo</div>
+          <div>⚠ Sicurezza, accessi e backup da gestire per ogni sistema</div>
         </div>
       </div>
       <div class="mx-arch-vs">→</div>
       <div class="mx-arch-col mx-good">
-        <div class="mx-arch-title">Con MongoDB Atlas</div>
+        <div class="mx-arch-title">Con MongoDB</div>
         <div class="mx-atlas">
-          <div class="mx-atlas-name">MongoDB Atlas</div>
+          <div class="mx-atlas-name">MongoDB · la piattaforma dati</div>
           <div class="mx-atlas-grid">
-            <span>Documenti e metadati</span><span>Atlas Search</span><span>Atlas Vector Search</span>
-            <span>Embedding automatici</span><span>$rankFusion + $rerank</span><span>GridFS · file originali</span>
-            <span class="wide">Memoria e tracciabilità dell’agente</span>
-            <span class="wide">🔒 Cifratura lato client dei campi sensibili</span>
+            <span>Documenti e metadati</span><span>MongoDB Search · parole</span>
+            <span>MongoDB Vector Search · significato</span><span>Embedding generati da MongoDB</span>
+            <span>Fusione e reranking nella pipeline</span><span>GridFS / Object Storage · file originali</span>
+            <span>Memoria degli agenti</span><span>Sicurezza e governance</span>
           </div>
-          <div class="mx-voyage">modelli Voyage AI · embedding e reranking</div>
+        </div>
+        <div class="mx-layers">
+          <div class="vo"><b>Voyage AI</b><span>i modelli: embedding e reranking</span></div>
+          <div class="llm"><b>Modello linguistico</b><span>a scelta: scrive la risposta</span></div>
         </div>
         <div class="mx-gain">
-          <div>✓ Un solo sistema da proteggere, monitorare e scalare</div>
-          <div>✓ Testo, vettori e metadati sempre allineati: stanno nello stesso documento</div>
-          <div>✓ Ricerca ibrida e reranking dentro il database, in una query</div>
-          <div>✓ Il team scrive l’applicazione, non le integrazioni</div>
+          <div>✓ Un solo punto di governo per dati e ricerca</div>
+          <div>✓ Nessun database di ricerca separato da mantenere sincronizzato</div>
+          <div>✓ Il team scrive la logica dell’applicazione, non le integrazioni</div>
         </div>
       </div>
     </div>
 
-    <h2 class="mx-h2">Il modello documentale: un passaggio, tutto quello che serve</h2>
-    <p class="muted mx-sub">Passa sopra ai riquadri: ogni parte del documento alimenta una capacità diversa.</p>
+    <h2 class="mx-h2">Il modello documentale: i dati come li usa l’applicazione</h2>
+    <p class="muted mx-sub">Un passaggio di questa demo com’è salvato, con alcuni campi omessi. Passa sopra ai riquadri.</p>
     <div class="mx-doc">
       <pre class="mx-json"><span class="k">{</span>
-  <span data-f="meta">"document_id": "3M_2018_10K",</span>
-  <span data-f="meta">"filename": "3M_2018_10K.pdf",</span>
-  <span data-f="meta">"page_number": 46,</span>
-  <span data-f="meta">"year": 2018,  "category": "10-K",  "language": "en",</span>
-  <span data-f="text">"content": "### Cash Flows from Investing Activities
-             |(Millions)|2018|2017|2016|
-             |---|---|---|---|
-             |Purchases of PP&amp;E|(1,577)|(1,373)|(1,420)| …",</span>
-  <span data-f="text">"content_type": "table",</span>
-  <span data-f="vector">"embedding_mode": "auto",   // vettore gestito da Atlas</span>
-  <span data-f="file">"gridfs_file_id": ObjectId("…"),</span>
-  <span data-f="meta">"ingested_at": ISODate("2026-10-30T18:20:00Z")</span>
+  <span>"_id": ObjectId("6ae4…8e72"),</span>
+  <span data-f="together meta">"filename": "3M_2018_10K.pdf",</span>
+  <span data-f="together meta">"page_number": 7,</span>
+  <span data-f="meta">"title": "10-K · 3M Company",</span>
+  <span data-f="meta">"language": "en",</span>
+  <span data-f="together">"content": "In 2018, 3M expended approximately $27 million
+              for capital projects related to protecting
+              the environment…",</span>
+  <span data-f="together">"embedding_mode": "auto",  // vettore creato da MongoDB</span>
+  <span data-f="meta">"embedding_model": "voyage-4-large",</span>
+  <span data-f="together">"gridfs_file_id": "6ae4…8e5d", // riferimento all’originale: qui GridFS</span>
+  <span>"ingested_at": ISODate("2026-10-30T18:23:31Z")</span>
 <span class="k">}</span></pre>
       <div class="mx-doc-cards">
-        <div class="mx-dc" data-f="text"><b>Testo e tabelle</b><span>Le tabelle restano tabelle: ogni riga legata agli anni dell’intestazione e al titolo della sezione. Atlas Search lo indicizza per parole: trova codici, sigle, voci contabili esatte.</span></div>
-        <div class="mx-dc" data-f="vector"><b>Significato</b><span>Atlas Vector Search lo indicizza per significato: una domanda in italiano trova il passaggio in inglese.</span></div>
-        <div class="mx-dc" data-f="meta"><b>Metadati</b><span>Anno, azienda, lingua, categoria: filtri applicati dentro la ricerca, non dopo. E puoi aggiungerne di nuovi senza migrazioni di schema.</span></div>
-        <div class="mx-dc" data-f="file"><b>File originale</b><span>Il PDF completo resta in MongoDB (GridFS): dalla risposta apri la pagina citata.</span></div>
+        <div class="mx-dc" data-f="together"><b>Ciò che si usa insieme sta insieme</b><span>Ogni passaggio raccoglie testo, metadati e riferimento alla fonte in un documento MongoDB. Gli indici di ricerca e, in modalità automatica, i vettori associati sono gestiti dalla piattaforma. Il file originale può risiedere in GridFS o in un object storage esterno, senza perdere il collegamento con i passaggi citati.</span></div>
+        <div class="mx-dc" data-f="meta"><b>Schema flessibile</b><span>Nuovi metadati e tipologie documentali possono essere introdotti senza modificare rigidamente l’intera struttura. Documenti con campi diversi convivono nella stessa collection; un cambio di modello di embedding può richiedere l’aggiornamento o la ricostruzione degli indici.</span></div>
+        <div class="mx-dc" data-f="nested"><b>Strutture annidate, regole quando servono</b><span>Liste e sotto-documenti restano dentro il documento e si filtrano e indicizzano come gli altri campi. Se servono vincoli, la validazione dello schema impone campi e tipi.</span></div>
       </div>
     </div>
+    <p class="small muted mx-doc-note">Nell’implementazione mostrata il PDF è in GridFS. In un’architettura alternativa il documento può conservare un riferimento a un object storage esterno. Con la modalità automatica i vettori non sono un campo del documento: li gestisce MongoDB insieme all’indice.</p>
 
-    <h2 class="mx-h2">Le capacità, una per una</h2>
-    <div class="mx-pillars">
-      <article class="mx-p">
-        <div class="mx-p-n">01</div>
-        <h3>Ricerca ibrida nativa</h3>
-        <p class="what"><b>Cosa fa.</b> Nella stessa aggregazione <code>$search</code> cerca per parole (BM25), <code>$vectorSearch</code> cerca per significato e <code>$rankFusion</code> fonde le due classifiche con la Reciprocal Rank Fusion.</p>
-        <p class="why"><b>Il valore.</b> Le parole esatte da sole non capiscono i sinonimi; i vettori da soli perdono codici e numeri. Insieme coprono entrambi, senza un motore esterno né codice di fusione da mantenere.</p>
+    <h2 class="mx-h2">Quattro pilastri</h2>
+    <p class="muted mx-sub">Le capacità di MongoDB raggruppate per il valore che portano. Apri un pilastro per i dettagli.</p>
+    <div class="mx-pls">
+      <article class="mx-pl">
+        <h3>Unificare i dati</h3>
+        <p class="mx-pl-v">Contenuti, metadati e memoria degli agenti in MongoDB; documenti originali in GridFS o object storage, sempre collegati alle fonti.</p>
+        <div class="mx-chips"><span>Documenti e metadati</span><span>GridFS / Object Storage</span><span>Memoria degli agenti</span></div>
+        <details><summary>Dettagli</summary>
+          <p><b>Documenti e metadati.</b> Ogni chunk è un documento con testo, fonte e metadati: si filtra e si cerca senza ricostruire relazioni tra tabelle.</p>
+          <p><b>File originali.</b> La demo conserva i PDF in GridFS; in alternativa possono risiedere in object storage. In entrambi i casi MongoDB conserva i metadati e il riferimento necessario per aprire la fonte citata.</p>
+          <p><b>Memoria degli agenti.</b> Conversazioni, evidenze raccolte e decisioni sono documenti: l’agente mantiene il contesto tra le domande, anche giorni dopo.</p>
+        </details>
       </article>
-      <article class="mx-p">
-        <div class="mx-p-n">02</div>
-        <h3>Embedding automatici</h3>
-        <p class="what"><b>Cosa fa.</b> Con la modalità automatica Atlas genera i vettori con i modelli Voyage AI al momento dell’inserimento e li aggiorna quando il testo cambia.</p>
-        <p class="why"><b>Il valore.</b> Nessuna pipeline di embedding da costruire, scalare e monitorare. Il vettore non resta mai indietro rispetto al dato.</p>
+      <article class="mx-pl">
+        <h3>Migliorare il recupero</h3>
+        <p class="mx-pl-v">La qualità della risposta nasce dalla qualità del recupero: al modello arrivano le evidenze migliori.</p>
+        <div class="mx-chips"><span>Ricerca ibrida</span><span>Embedding generati da MongoDB</span><span>Modelli Voyage AI</span><span>Reranking</span></div>
+        <details><summary>Dettagli</summary>
+          <p><b>Ricerca ibrida.</b> Le parole trovano termini esatti, sigle e codici; i vettori trovano lo stesso concetto detto in altro modo. MongoDB le fonde in una sola pipeline, senza motori separati.</p>
+          <p><b>Embedding generati da MongoDB.</b> Con la modalità automatica MongoDB crea e aggiorna i vettori con i modelli Voyage AI: nessuna pipeline di embedding nell’applicazione.</p>
+          <p><b>Modelli Voyage AI.</b> Embedding testuali <code data-model="embed">voyage</code>, contestuali <code data-model="context">voyage-context</code> e multimodali <code data-model="multimodal">voyage-multimodal</code>, oltre a modelli per finanza, diritto e codice.</p>
+          <p><b>Reranking.</b> <code data-model="rerank">rerank</code> rilegge domanda e candidati e tiene i più pertinenti: meno testo superfluo per il modello. Se nessun passaggio supera la soglia di pertinenza scelta dall’applicazione, il modello non viene chiamato.</p>
+        </details>
       </article>
-      <article class="mx-p">
-        <div class="mx-p-n">03</div>
-        <h3>Modelli Voyage AI</h3>
-        <p class="what"><b>Cosa fa.</b> Embedding testuali <code data-model="embed">voyage</code>, contestuali <code data-model="context">voyage-context</code> che leggono ogni passaggio nel contesto del documento, multimodali <code data-model="multimodal">voyage-multimodal</code> per pagine con grafici e slide.</p>
-        <p class="why"><b>Il valore.</b> Voyage AI fa parte di MongoDB: modelli di embedding e reranking tra i più accurati nei benchmark di recupero, scelti in base al contenuto, con un solo fornitore per database e modelli.</p>
+      <article class="mx-pl">
+        <h3>Governare e proteggere</h3>
+        <p class="mx-pl-v">Dati e ricerca condividono controlli di accesso e strumenti di governance; i flussi verso i modelli AI restano soggetti alle policy dell’organizzazione.</p>
+        <div class="mx-chips"><span>Cifratura</span><span>Accessi per ruolo</span><span>Audit</span><span>Tracciabilità</span></div>
+        <details><summary>Dettagli</summary>
+          <p><b>Cifratura.</b> In transito e su disco; per i campi più delicati anche lato client, prima che arrivino al database (sezione qui sotto).</p>
+          <p><b>Accessi per ruolo e filtri.</b> MongoDB governa l’accesso a database e collection. L’applicazione può applicare filtri sui metadati nelle query di ricerca per limitare i risultati alle informazioni autorizzate.</p>
+          <p><b>Audit e tracciabilità.</b> Ogni ricerca dell’agente salva passi, evidenze e decisioni: la risposta si ricostruisce dalla domanda alle fonti.</p>
+        </details>
       </article>
-      <article class="mx-p">
-        <div class="mx-p-n">04</div>
-        <h3>Reranking nel database</h3>
-        <p class="what"><b>Cosa fa.</b> Lo stage <code>$rerank</code> rilegge domanda e candidati insieme con il modello <code data-model="rerank">rerank</code> e li riordina per pertinenza. Accetta istruzioni in linguaggio naturale, come “privilegia il rendiconto finanziario”.</p>
-        <p class="why"><b>Il valore.</b> Al modello arrivano i passaggi davvero utili: risposte più precise e meno testo da pagare. Se nessun passaggio è pertinente, l’applicazione non chiama il modello e non inventa.</p>
-      </article>
-      <article class="mx-p">
-        <div class="mx-p-n">05</div>
-        <h3>Memoria dell’agente</h3>
-        <p class="what"><b>Cosa fa.</b> Ogni sessione è un documento: domande, risposte, fonti, scelte dell’utente. Ogni ricerca dell’agente salva passi, valutazioni e decisioni.</p>
-        <p class="why"><b>Il valore.</b> L’agente capisce «E nel 2015?» perché ricorda la conversazione, anche riaprendola giorni dopo. E ogni risposta è ricostruibile passo per passo: un requisito per audit e governance.</p>
-      </article>
-      <article class="mx-p">
-        <div class="mx-p-n">06</div>
-        <h3>File originali con GridFS</h3>
-        <p class="what"><b>Cosa fa.</b> I documenti completi (PDF, Office, immagini) sono salvati in MongoDB, collegati ai passaggi che ne derivano.</p>
-        <p class="why"><b>Il valore.</b> Ogni citazione porta alla pagina originale. Se serve, i file possono stare in un object storage e MongoDB conserva il riferimento.</p>
-      </article>
-      <article class="mx-p">
-        <div class="mx-p-n">07</div>
-        <h3>Scala ed efficienza</h3>
-        <p class="what"><b>Cosa fa.</b> Indici HNSW per la ricerca approssimata, quantizzazione <code>scalar</code> e <code>binary</code> dei vettori, Search Node dedicati alla ricerca.</p>
-        <p class="why"><b>Il valore.</b> La quantizzazione riduce la memoria dell’indice fino a circa 4 volte (scalar) o 32 volte (binary). I Search Node scalano la ricerca senza toccare il carico operativo.</p>
-      </article>
-      <article class="mx-p">
-        <div class="mx-p-n">08</div>
-        <h3>Sicurezza e governance</h3>
-        <p class="what"><b>Cosa fa.</b> Ricerca e vettori ereditano la sicurezza del database: cifratura in transito e su disco, controllo degli accessi per ruolo, audit, backup. I campi sensibili si possono cifrare nell’applicazione, prima che arrivino al database. I filtri sui metadati limitano cosa ogni utente può trovare.</p>
-        <p class="why"><b>Il valore.</b> I dati usati dall’AI non escono dal perimetro governato: una sola policy, non una per sistema. E per i dati più delicati nemmeno chi amministra il database li può leggere.</p>
-      </article>
-      <article class="mx-p">
-        <div class="mx-p-n">09</div>
-        <h3>Dove serve</h3>
-        <p class="what"><b>Cosa fa.</b> Atlas gira su AWS, Microsoft Azure e Google Cloud, in tutte le principali regioni.</p>
-        <p class="why"><b>Il valore.</b> I dati restano nella regione scelta, vicino alle applicazioni e ai modelli che li usano, senza legarsi a un solo cloud.</p>
+      <article class="mx-pl">
+        <h3>Scalare e distribuire</h3>
+        <p class="mx-pl-v">Crescere con i dati e con le ricerche, dove serve, contenendo memoria e costi.</p>
+        <div class="mx-chips"><span>Sharding</span><span>Search Node</span><span>Quantizzazione</span><span>Cloud e self-managed</span></div>
+        <details><summary>Dettagli</summary>
+          <p><b>Sharding e Search Node.</b> I dati si distribuiscono su più server; i Search Node dedicati scalano la ricerca senza pesare sul carico operativo.</p>
+          <p><b>Quantizzazione.</b> Le rappresentazioni scalar e binary possono ridurre sensibilmente lo spazio dei vettori rispetto a float32; il risparmio effettivo dell’indice dipende anche da strutture ausiliarie, rescoring e configurazione.</p>
+          <p><b>Cloud e self-managed.</b> Servizio gestito su AWS, Azure e Google Cloud, oppure installato in proprio: Search e Vector Search sono disponibili anche nella Community Edition. Le singole funzionalità vanno verificate sulla configurazione scelta.</p>
+        </details>
       </article>
     </div>
 
-    <h2 class="mx-h2">🔒 I dati sensibili cifrati anche dentro il database</h2>
-    <p class="muted mx-sub">Con la Client-Side Field Level Encryption (CSFLE) l’applicazione cifra il campo prima di inviarlo:
-      Atlas lo conserva, lo replica e ne fa il backup senza mai poterlo leggere. In questa demo è cifrata la prima domanda di ogni sessione dell’agente.</p>
-    <div class="card cs-card" id="mx-csfle-live"><p class="muted">Lettura dell’ultima sessione da Atlas…</p></div>
+    <h2 class="mx-h2">🔒 Proteggere i dati sensibili, anche da chi amministra il database</h2>
+    <p class="muted mx-sub">Con la Client-Side Field Level Encryption (CSFLE) i campi sensibili vengono cifrati dall’applicazione prima di partire:
+      MongoDB li riceve, li memorizza e li replica senza avere le chiavi per leggerli. Chi gestisce l’infrastruttura e chi può conoscere il dato
+      restano separati. In questa demo è cifrata la prima domanda di ogni sessione dell’agente.</p>
+    <div class="card cs-card" id="mx-csfle-live"><p class="muted">Lettura dell’ultima sessione dal database…</p></div>
     <div class="grid3 cs-steps">
       <div class="card"><h4>1 · Cifra l’applicazione</h4><p>Il driver MongoDB cifra il valore sul server dell’applicazione, con una chiave dati che solo l’applicazione può usare.</p></div>
-      <div class="card"><h4>2 · Atlas conserva un dato cifrato</h4><p>Sul cluster, sui dischi, nei backup e nella memoria del server il campo esiste solo cifrato. Gli altri campi restano normali: date, contatori, filtri.</p></div>
+      <div class="card"><h4>2 · MongoDB conserva un dato cifrato</h4><p>Sul cluster, sui dischi, nei backup e nella memoria del server il campo esiste solo cifrato. Gli altri campi restano normali: date, contatori, filtri.</p></div>
       <div class="card"><h4>3 · Le chiavi restano del cliente</h4><p>Le chiavi dati stanno in un key vault e sono cifrate con una chiave master che il cliente custodisce, di norma in un servizio di gestione chiavi (KMS).</p></div>
     </div>
     <h3 class="cs-h3">Da cosa protegge, rispetto alle altre cifrature</h3>
@@ -228,20 +299,22 @@
         <tr><td>Chi legge i file del database o dei backup</td><td class="n">vede i dati</td><td class="y">protetto</td><td class="y">protetto</td></tr>
         <tr><td>Chi legge la memoria del server</td><td class="n">vede i dati</td><td class="n">vede i dati</td><td class="y">protetto</td></tr>
         <tr><td>Un amministratore del database</td><td class="n">vede i dati</td><td class="n">vede i dati</td><td class="y">protetto</td></tr>
+        <tr class="qe"><td>🔎 <b>Queryable Encryption</b></td><td colspan="3">Protegge in tutti i casi sopra, come CSFLE, e in più:
+          <b>si cerca dentro il dato cifrato</b> (valore esatto e intervalli; inizio, fine o parte del testo secondo versione e stato della funzionalità) senza che il server lo veda mai in chiaro ·
+          lo stesso valore è cifrato ogni volta in modo diverso · le operazioni sui campi cifrati restano fuori dai log delle query e dal profiler.</td></tr>
       </tbody>
     </table>
-    <p class="small muted">Ogni colonna è la protezione da sola, come la descrive la documentazione MongoDB; in pratica si usano tutte insieme. Restano visibili
-      i campi non cifrati, le dimensioni dei dati e i metadati delle operazioni. Il modello che scrive la risposta riceve il testo in chiaro, perché lo legge l’applicazione che ha la chiave.</p>
     <details class="card mx-acc"><summary>CSFLE o Queryable Encryption?</summary>
       <table><thead><tr><th></th><th>CSFLE</th><th>Queryable Encryption</th></tr></thead><tbody>
-        <tr><td>Ricerche sul campo cifrato</td><td>Uguaglianza, solo con l’algoritmo deterministico</td><td>Uguaglianza e intervalli, con cifratura casuale</td></tr>
+        <tr><td>Ricerche sul campo cifrato</td><td>Uguaglianza, solo con l’algoritmo deterministico</td><td>Valore esatto, intervalli, prefisso, suffisso e parte del testo, con cifratura casuale</td></tr>
         <tr><td>Dove si dichiara</td><td>Nell’applicazione, campo per campo</td><td>Nella collection, quando la si crea</td></tr>
         <tr><td>Scelta di questa demo</td><td>Sì: sulla prima domanda non si cercano valori e la collection esiste già</td><td>Adatta quando bisogna cercare su dati cifrati, come un codice fiscale</td></tr>
       </tbody></table>
-      <p class="small muted">Le due tecniche non si usano sulla stessa collection.</p>
+      <p class="small muted">Le due tecniche non si usano sulla stessa collection. Questa demo usa CSFLE, non Queryable Encryption. La disponibilità dei diversi tipi di query su campi cifrati dipende dalla versione e dallo stato della funzionalità; verificare i requisiti e le limitazioni prima di utilizzarli in produzione.</p>
     </details>
 
-    <h2 class="mx-h2">Una domanda, una sola query in Atlas</h2>
+    <h2 class="mx-h2">Dal recupero alla risposta: una sola pipeline MongoDB</h2>
+    <p class="muted mx-sub">MongoDB cerca, fonde e riordina le informazioni in un’unica aggregazione; il modello linguistico, esterno alla pipeline, parte da evidenze già selezionate.</p>
     <div class="mx-pipe">
       <div class="mx-ps"><span>1</span><b>$search</b><small>parole e codici</small></div>
       <div class="mx-ps"><span>2</span><b>$vectorSearch</b><small>significato, anche tra lingue</small></div>
@@ -264,14 +337,6 @@
     <p class="muted small">Schema semplificato: la pipeline esatta di ogni domanda si legge nella pagina Query, sotto “Pipeline MQL”.</p>
 
     <h2 class="mx-h2">Approfondimenti per i team tecnici</h2>
-    <details class="card mx-acc"><summary>Quale modalità di embedding scegliere</summary>
-      <table><thead><tr><th>Modalità</th><th>Cosa fa</th><th>Quando conviene</th></tr></thead><tbody>
-        <tr><td><b>auto</b></td><td>Atlas genera e aggiorna i vettori.</td><td>Il default: nessun codice di embedding nell’applicazione.</td></tr>
-        <tr><td><b>manual</b></td><td>L’applicazione chiama Voyage e salva i vettori nei documenti.</td><td>Serve pieno controllo su modello, versioni e momento del calcolo.</td></tr>
-        <tr><td><b>context</b></td><td>Ogni passaggio è rappresentato insieme al resto del documento.</td><td>Testi dove un paragrafo da solo è ambiguo: contratti, normative, manuali.</td></tr>
-        <tr><td><b>multimodal</b></td><td>Testo e immagine della pagina nello stesso vettore.</td><td>Slide, grafici, schemi: contenuti che si riconoscono anche visivamente.</td></tr>
-      </tbody></table>
-    </details>
     <details class="card mx-acc"><summary>Quantizzazione: memoria contro precisione</summary>
       <table><thead><tr><th>Tipo</th><th>Rappresentazione</th><th>Compromesso</th></tr></thead><tbody>
         <tr><td><code>float</code></td><td>32 bit per dimensione</td><td>Massima fedeltà, più memoria.</td></tr>
@@ -297,6 +362,9 @@
     <details class="card mx-acc"><summary>Come vengono letti i documenti</summary>
       <p>Voyage AI trasforma testo e immagini in vettori, ma prima qualcuno deve leggere il file. I PDF passano da <b>pymupdf4llm</b>, che restituisce titoli e tabelle con le loro colonne: nei bilanci ogni riga resta legata agli anni dell’intestazione, invece di diventare una fila di numeri. I passaggi non spezzano mai una tabella a metà riga e ripetono intestazioni e titolo della sezione. Word, Excel e HTML passano da <b>MarkItDown</b>. Tesseract interviene solo sulle pagine scansionate; LibreOffice solo per le immagini delle slide nella modalità multimodale.</p>
     </details>
+
+    <div class="mx-close"><b>MongoDB porta la ricerca e l’AI vicino ai dati, senza moltiplicare i sistemi da integrare.</b>
+      <span>Una piattaforma per applicazioni RAG e agentiche: dati operativi, ricerca, memoria, scalabilità e sicurezza insieme.</span></div>
   </template>
 
   <script src="/web/app.js"></script>
