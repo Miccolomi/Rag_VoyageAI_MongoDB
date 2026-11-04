@@ -73,8 +73,8 @@ With `uv` you do not need to worry: the command in step 2 downloads Python 3.12 
 **1. Download the project** and enter the folder:
 
 ```bash
-git clone <repository-url>
-cd <folder-name>
+git clone https://github.com/Miccolomi/Rag_VoyageAI_MongoDB.git
+cd Rag_VoyageAI_MongoDB
 ```
 
 **2. Create the Python environment and install the libraries.** Pick one of the two ways.
@@ -239,6 +239,7 @@ one indexing mode or **tutte** (all of them).
 | **Query** | classic RAG, step by step |
 | **Ricerca agentica** | the agent, with the timeline of every decision |
 | **Admin** | status, indexes, documents per mode, reset |
+| **Domande di prova** (test questions) | 150 FinanceBench questions with the reference answer, to copy into Query or Ricerca agentica |
 
 ### Query
 
@@ -372,3 +373,6 @@ The documents come from **FinanceBench** by Patronus AI
 US-listed companies. They are not included in this project; the script downloads them from a
 specific version of that repository (list in `scripts/financebench_100.json`). Check FinanceBench's
 terms of use before using them outside a demo.
+
+The 150 questions with reference answers on the **Domande di prova** page (`web/domande.json`)
+come from FinanceBench by Patronus AI, licensed CC BY-NC 4.0: non-commercial use, with attribution.

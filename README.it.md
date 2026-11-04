@@ -71,8 +71,8 @@ fallisce. Con `uv` non devi preoccupartene: il comando del passo 2 scarica da so
 **1. Scarica il progetto** e entra nella cartella:
 
 ```bash
-git clone <indirizzo-del-repository>
-cd <nome-della-cartella>
+git clone https://github.com/Miccolomi/Rag_VoyageAI_MongoDB.git
+cd Rag_VoyageAI_MongoDB
 ```
 
 **2. Crea l'ambiente Python e installa le librerie.** Scegli uno dei due modi.
@@ -239,6 +239,7 @@ indicizzazione oppure **tutte** insieme.
 | **Query** | la RAG classica, passo per passo |
 | **Ricerca agentica** | l'agente, con la cronologia di ogni decisione |
 | **Admin** | stato, indici, documenti per modalità, azzeramento |
+| **Domande di prova** | 150 domande FinanceBench con la risposta di riferimento, da copiare in Query o Ricerca agentica |
 
 ### Query
 
@@ -371,3 +372,6 @@ I documenti provengono da **FinanceBench** di Patronus AI
 società quotate negli Stati Uniti. Non sono inclusi in questo progetto; lo script li scarica da una versione precisa
 di quel repository (elenco in `scripts/financebench_100.json`). Verifica le condizioni d'uso di
 FinanceBench prima di usarli fuori da una demo.
+
+Le 150 domande con risposta di riferimento della pagina **Domande di prova** (`web/domande.json`)
+vengono da FinanceBench di Patronus AI, licenza CC BY-NC 4.0: uso non commerciale, citando la fonte.
