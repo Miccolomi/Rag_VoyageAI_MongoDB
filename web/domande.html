@@ -1,0 +1,114 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Domande di prova · RAG Demo</title>
+  <link rel="stylesheet" href="/web/style.css">
+  <style>
+    .qa-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 16px; flex-wrap: wrap; }
+    .qa-filters { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin: 16px 0 6px; position: sticky; top: 0;
+      background: var(--bg); padding: 10px 0; z-index: 5; }
+    .qa-filters input[type=text] { flex: 1 1 260px; width: auto; }
+    .qa-filters select { flex: 0 0 auto; width: auto; max-width: 260px; }
+    .qa-head > div { flex: 1 1 520px; }
+    .qa-count { margin: 4px 0 12px; }
+    .qa-meta { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; font-size: 12.5px; color: var(--muted); margin-bottom: 8px; }
+    .qa-tag { font-size: 12px; border-radius: 999px; padding: 1px 9px; background: var(--neutral-bg); color: var(--text); }
+    .qa-tag.t-Metrica { background: var(--accent-soft); color: var(--accent); }
+    .qa-tag.t-Domanda-da-analista { background: var(--agent-soft); color: var(--agent); }
+    .qa-tag.t-Domanda-nuova { background: var(--warn-bg); color: var(--warn); }
+    .qa-doc { font-family: var(--mono); font-size: 12px; }
+    .qa-q { font-weight: 600; margin: 0 0 10px; }
+    .qa-a { border-left: 3px solid var(--accent); background: var(--surface-2); border-radius: 6px; padding: 8px 12px; margin: 0 0 8px; }
+    .qa-a .lbl { display: block; font-size: 11.5px; text-transform: uppercase; letter-spacing: .04em; color: var(--muted); }
+    .qa-card details { margin-top: 6px; font-size: 13.5px; }
+    .qa-card summary { cursor: pointer; color: var(--accent); }
+    .qa-ev { white-space: pre-wrap; font: 12px/1.5 var(--mono); background: var(--surface-2); border: 1px solid var(--border);
+      border-radius: 8px; padding: 10px; max-height: 260px; overflow: auto; margin: 6px 0 0; }
+    .qa-actions { display: flex; gap: 8px; justify-content: flex-end; margin-top: 10px; }
+    .qa-actions button { font-size: 13px; padding: 5px 12px; }
+    .qa-empty { text-align: center; padding: 30px; }
+  </style>
+</head>
+<body>
+  <main>
+    <div class="qa-head">
+      <div>
+        <h1>Domande di prova</h1>
+        <p class="muted" style="margin:0">Domande con la risposta di riferimento sui documenti caricati nella demo.
+          Copia una domanda e incollala nella pagina Query o Ricerca agentica, poi confronta le risposte.</p>
+      </div>
+      <a class="btn" href="/" style="text-decoration:none">← Torna alla demo</a>
+    </div>
+    <p class="small muted">Fonte: FinanceBench di Patronus AI, licenza CC BY-NC 4.0 (uso non commerciale, citando la fonte).
+      Le risposte sono state scritte e controllate dagli autori di FinanceBench, non generate da questa demo.
+      Domande e risposte sono in inglese, come nei documenti.</p>
+
+    <div class="qa-filters">
+      <input type="text" id="qa-search" placeholder="Cerca nelle domande e nelle risposte…" aria-label="Cerca">
+      <select id="qa-company" aria-label="Azienda"><option value="">Tutte le aziende</option></select>
+      <select id="qa-type" aria-label="Tipo"><option value="">Tutti i tipi</option></select>
+    </div>
+    <p class="qa-count small muted" id="qa-count"></p>
+    <div id="qa-list"></div>
+  </main>
+
+  <script>
+  (() => {
+    const el = (tag, cls, text) => { const n = document.createElement(tag); if (cls) n.className = cls; if (text != null) n.textContent = text; return n; };
+    const list = document.getElementById("qa-list");
+    const search = document.getElementById("qa-search");
+    const company = document.getElementById("qa-company");
+    const type = document.getElementById("qa-type");
+    const count = document.getElementById("qa-count");
+    let all = [];
+
+    const copy = async (btn, text) => {
+      try { await navigator.clipboard.writeText(text); }
+      catch { const t = el("textarea"); t.value = text; document.body.append(t); t.select(); document.execCommand("copy"); t.remove(); }
+      const old = btn.textContent; btn.textContent = "Copiata ✓"; setTimeout(() => (btn.textContent = old), 1400);
+    };
+
+    const card = (q) => {
+      const c = el("div", "card qa-card");
+      const meta = el("div", "qa-meta");
+      meta.append(el("strong", null, q.company), el("span", "qa-doc", q.doc),
+        el("span", "qa-tag t-" + q.type.replaceAll(" ", "-"), q.type));
+      q.reasoning.forEach((r) => meta.append(el("span", "qa-tag", r)));
+      const pages = [...new Set(q.evidence.map((e) => e.page))];
+      if (pages.length) meta.append(el("span", null, (pages.length > 1 ? "pagine " : "pagina ") + pages.join(", ")));
+      c.append(meta, el("p", "qa-q", q.question));
+      const a = el("div", "qa-a"); a.append(el("span", "lbl", "Risposta di riferimento"), el("span", null, q.answer)); c.append(a);
+      if (q.justification || q.evidence.length) {
+        const d = el("details"); d.append(el("summary", null, "Spiegazione e testo di prova"));
+        if (q.justification) d.append(el("p", null, q.justification));
+        q.evidence.forEach((e) => { d.append(el("div", "small muted", `${e.doc} · pagina ${e.page}`), el("pre", "qa-ev", e.text)); });
+        c.append(d);
+      }
+      const act = el("div", "qa-actions");
+      const bq = el("button", "primary", "Copia la domanda"); bq.onclick = () => copy(bq, q.question);
+      const ba = el("button", null, "Copia domanda e risposta"); ba.onclick = () => copy(ba, `${q.question}\n\nRisposta di riferimento: ${q.answer}`);
+      act.append(ba, bq); c.append(act);
+      return c;
+    };
+
+    const render = () => {
+      const s = search.value.trim().toLowerCase();
+      const shown = all.filter((q) => (!company.value || q.company === company.value) && (!type.value || q.type === type.value)
+        && (!s || (q.question + " " + q.answer + " " + q.doc).toLowerCase().includes(s)));
+      list.replaceChildren(...(shown.length ? shown.map(card) : [el("div", "card qa-empty muted", "Nessuna domanda con questi filtri.")]));
+      count.textContent = shown.length === all.length ? `${all.length} domande` : `${shown.length} di ${all.length} domande`;
+    };
+
+    fetch("/web/domande.json").then((r) => r.json()).then((data) => {
+      all = data.questions;
+      [...new Set(all.map((q) => q.company))].sort((a, b) => a.localeCompare(b)).forEach((v) => company.append(new Option(v, v)));
+      [...new Set(all.map((q) => q.type))].sort().forEach((v) => type.append(new Option(v, v)));
+      [search, company, type].forEach((n) => n.addEventListener("input", render));
+      render();
+    }).catch(() => { list.replaceChildren(el("div", "card qa-empty muted", "Impossibile caricare l'elenco delle domande.")); });
+  })();
+  </script>
+</body>
+</html>

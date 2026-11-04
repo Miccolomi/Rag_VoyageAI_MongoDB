@@ -63,6 +63,11 @@ AI_GATEWAY_API_KEY: str = os.getenv("AI_GATEWAY_API_KEY", "")
 AI_GATEWAY_API_KEY_2: str = os.getenv("AI_GATEWAY_API_KEY_2", "")  # di riserva, se la prima è rifiutata
 AI_GATEWAY_MODEL: str = os.getenv("AI_GATEWAY_MODEL", "modello-test")
 AI_GATEWAY_AGENT_MODEL: str = os.getenv("AI_GATEWAY_AGENT_MODEL") or AI_GATEWAY_MODEL
+# OpenAI (stessa API "Responses" del gateway): LLM_PROVIDER=openai
+OPENAI_API_KEY: str = os.getenv("OPENAI_API_KEY", "")
+OPENAI_BASE_URL: str = os.getenv("OPENAI_BASE_URL", "https://api.openai.com/v1").rstrip("/")
+OPENAI_MODEL: str = os.getenv("OPENAI_MODEL", "gpt-5-mini")
+OPENAI_AGENT_MODEL: str = os.getenv("OPENAI_AGENT_MODEL") or OPENAI_MODEL
 # Provider per le decisioni dell'agente (pianificatore, valutatore). Vuoto = LLM_PROVIDER.
 AGENT_LLM_PROVIDER: str = (os.getenv("AGENT_LLM_PROVIDER") or LLM_PROVIDER).lower()
 

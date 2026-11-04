@@ -106,3 +106,43 @@ def test_parametro_citato_senza_virgolette(monkeypatch):
     monkeypatch.setattr(ai_gateway.httpx, "post", post)
     ai_gateway.respond("s", "u", model="m", max_tokens=10)
     assert "reasoning" not in sent[-1] and "temperature" in sent[-1]
+
+
+def test_openai_usa_indirizzo_e_chiave_di_openai(monkeypatch):
+    monkeypatch.setattr(config, "OPENAI_API_KEY", "sk-test")
+    monkeypatch.setattr(config, "OPENAI_BASE_URL", "https://api.openai.example/v1")
+    seen = {}
+
+    def post(url, json=None, headers=None, timeout=None):
+        seen.update(url=url, auth=headers["Authorization"], model=json["model"])
+        return _Resp(200, OK)
+
+    monkeypatch.setattr(ai_gateway.httpx, "post", post)
+    out = ai_gateway.respond("s", "u", model="gpt-5-mini", max_tokens=10, provider="openai")
+    assert out["answer"] == "ok [#1]"
+    assert seen == {"url": "https://api.openai.example/v1/responses", "auth": "Bearer sk-test", "model": "gpt-5-mini"}
+
+
+def test_openai_senza_chiave_lo_dice(monkeypatch):
+    monkeypatch.setattr(config, "OPENAI_API_KEY", "")
+    with pytest.raises(RuntimeError, match="OPENAI_API_KEY"):
+        ai_gateway.respond("s", "u", model="m", max_tokens=10, provider="openai")
+
+
+def test_openai_errore_con_il_suo_nome(monkeypatch):
+    monkeypatch.setattr(config, "OPENAI_API_KEY", "sk-test")
+    monkeypatch.setattr(ai_gateway.httpx, "post", lambda *a, **k: _Resp(401, {"error": {"message": "Incorrect API key"}}))
+    with pytest.raises(RuntimeError, match="OpenAI ha rifiutato.*Incorrect API key"):
+        ai_gateway.respond("s", "u", model="m", max_tokens=10, provider="openai")
+
+
+def test_generazione_con_provider_openai(monkeypatch):
+    from src import generation
+    monkeypatch.setattr(config, "LLM_PROVIDER", "openai")
+    monkeypatch.setattr(config, "OPENAI_API_KEY", "sk-test")
+    monkeypatch.setattr(config, "OPENAI_MODEL", "gpt-5-mini")
+    calls = []
+    monkeypatch.setattr(ai_gateway.httpx, "post", lambda url, **k: calls.append(url) or _Resp(200, OK))
+    out = generation.generate_answer("domanda", [{"content": "testo", "filename": "a.pdf", "page_number": 1}])
+    assert out["provider"] == "openai" and out["answer"] == "ok [#1]"
+    assert calls[0].endswith("/responses") and generation.llm_available()

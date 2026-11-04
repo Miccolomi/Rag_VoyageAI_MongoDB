@@ -1,6 +1,6 @@
 """Risposta del modello basata solo sui passaggi recuperati.
 
-Provider scelto con `LLM_PROVIDER`: gateway (AI Gateway aziendale), anthropic, ollama, gemini.
+Provider scelto con `LLM_PROVIDER`: anthropic, openai, gemini, ollama, gateway (AI Gateway aziendale).
 `generate_answer()` fa una sola chiamata e restituisce testo, uso dei token e modello.
 Il system prompt (prompts/system_prompt.txt) è lo stesso per tutti i provider.
 """
@@ -68,7 +68,6 @@ def _generate_anthropic(query: str, chunks: list[dict[str, Any]]) -> dict[str, A
     resp = client.messages.create(
         model=config.ANTHROPIC_MODEL,
         max_tokens=config.LLM_MAX_TOKENS,
-        temperature=0,
         system=system_text,
         messages=[{"role": "user", "content": user_text}],
     )
@@ -203,23 +202,24 @@ def _generate_ollama(query: str, chunks: list[dict[str, Any]]) -> dict[str, Any]
     }
 
 
-def _generate_gateway(query: str, chunks: list[dict[str, Any]]) -> dict[str, Any]:
+def _generate_gateway(query: str, chunks: list[dict[str, Any]], provider: str = "gateway") -> dict[str, Any]:
     from . import ai_gateway
     system_text = _system_prompt()
     user_text = _user_message(query, chunks)
-    result = ai_gateway.respond(system_text, user_text, model=config.AI_GATEWAY_MODEL,
-                                max_tokens=config.LLM_MAX_TOKENS)
+    model = config.OPENAI_MODEL if provider == "openai" else config.AI_GATEWAY_MODEL
+    result = ai_gateway.respond(system_text, user_text, model=model,
+                                max_tokens=config.LLM_MAX_TOKENS, provider=provider)
     return {
         **result,
-        "provider": "gateway",
+        "provider": provider,
         "request_messages": [{"role": "system", "content": system_text}, {"role": "user", "content": user_text}],
     }
 
 
 def generate_answer(query: str, chunks: list[dict[str, Any]]) -> dict[str, Any]:
     """Versione bloccante. Ritorna dict completo (answer + usage + provider + model)."""
-    if config.LLM_PROVIDER == "gateway":
-        return _generate_gateway(query, chunks)
+    if config.LLM_PROVIDER in ("gateway", "openai"):
+        return _generate_gateway(query, chunks, config.LLM_PROVIDER)
     if config.LLM_PROVIDER == "ollama":
         return _generate_ollama(query, chunks)
     if config.LLM_PROVIDER == "anthropic":
@@ -228,7 +228,7 @@ def generate_answer(query: str, chunks: list[dict[str, Any]]) -> dict[str, Any]:
         return _generate_gemini(query, chunks)
     raise ValueError(
         f"LLM_PROVIDER non valido: '{config.LLM_PROVIDER}' "
-        f"(attesi: anthropic | ollama | gemini | gateway)"
+        f"(attesi: anthropic | openai | gemini | ollama | gateway)"
     )
 
 
@@ -238,6 +238,8 @@ def llm_available() -> bool:
         return bool(config.ANTHROPIC_API_KEY)
     if config.LLM_PROVIDER == "gateway":
         return bool(config.AI_GATEWAY_API_KEY or config.AI_GATEWAY_API_KEY_2)
+    if config.LLM_PROVIDER == "openai":
+        return bool(config.OPENAI_API_KEY)
     if config.LLM_PROVIDER == "gemini":
         return bool(config.GEMINI_API_KEY)
     if config.LLM_PROVIDER == "ollama":

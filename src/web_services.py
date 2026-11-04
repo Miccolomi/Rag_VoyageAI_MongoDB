@@ -62,7 +62,7 @@ def page_label(page: Any) -> str:
 
 def llm_label() -> str:
     return {"anthropic": f"Anthropic · {config.ANTHROPIC_MODEL}", "ollama": f"Ollama · {config.OLLAMA_MODEL}",
-            "gemini": f"Gemini · {config.GEMINI_MODEL}",
+            "gemini": f"Gemini · {config.GEMINI_MODEL}", "openai": f"OpenAI · {config.OPENAI_MODEL}",
             "gateway": f"AI Gateway · {config.AI_GATEWAY_MODEL}"}.get(config.LLM_PROVIDER, config.LLM_PROVIDER)
 
 
@@ -176,8 +176,11 @@ def health(force: bool = False) -> dict[str, Any]:
         check("Cifratura lato client", "CSFLE: chiave dati nel key vault, cifratura e decifratura di prova",
               field_encryption.self_test)
     check("Modello della risposta", "Una chiamata vera al modello che scrive le risposte", answer_model)
-    if (config.AGENT_LLM_PROVIDER, config.AI_GATEWAY_AGENT_MODEL if config.AGENT_LLM_PROVIDER == "gateway" else "") != \
-            (config.LLM_PROVIDER, config.AI_GATEWAY_MODEL if config.LLM_PROVIDER == "gateway" else ""):
+    answer_models = {"gateway": config.AI_GATEWAY_MODEL, "openai": config.OPENAI_MODEL, "anthropic": config.ANTHROPIC_MODEL,
+                     "ollama": config.OLLAMA_MODEL, "gemini": config.GEMINI_MODEL}
+    from . import agentic_search
+    if (config.AGENT_LLM_PROVIDER, agentic_search.model_label()) != \
+            (config.LLM_PROVIDER, answer_models.get(config.LLM_PROVIDER, "")):
         check("Modello dell'agente", "Una chiamata vera al modello che decide i passi dell'agente", agent_model)
     data = {"ok": all(c["ok"] for c in checks), "checks": checks,
             "checked_at": datetime.now(timezone.utc).isoformat()}

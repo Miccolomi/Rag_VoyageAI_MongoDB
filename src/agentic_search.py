@@ -21,23 +21,24 @@ def model_label() -> str:
         "gemini": config.GEMINI_MODEL,
         "ollama": config.OLLAMA_AGENT_MODEL,
         "gateway": config.AI_GATEWAY_AGENT_MODEL,
+        "openai": config.OPENAI_AGENT_MODEL,
     }.get(config.AGENT_LLM_PROVIDER, "unknown")
 
 
 def _complete(system: str, prompt: str, *, max_tokens: int = 700) -> str:
     """Call the configured provider for a short, constrained agent decision."""
     provider = config.AGENT_LLM_PROVIDER
-    if provider == "gateway":
+    if provider in ("gateway", "openai"):
         from . import ai_gateway
-        return ai_gateway.respond(system, prompt, model=config.AI_GATEWAY_AGENT_MODEL,
-                                  max_tokens=max_tokens, json_mode=True, timeout=90)["answer"]
+        model = config.OPENAI_AGENT_MODEL if provider == "openai" else config.AI_GATEWAY_AGENT_MODEL
+        return ai_gateway.respond(system, prompt, model=model, max_tokens=max_tokens, json_mode=True,
+                                  timeout=90, provider=provider)["answer"]
     if provider == "anthropic":
         if not config.ANTHROPIC_API_KEY:
             raise RuntimeError("ANTHROPIC_API_KEY non impostata nel .env")
         response = Anthropic(api_key=config.ANTHROPIC_API_KEY).messages.create(
             model=config.ANTHROPIC_AGENT_MODEL,
             max_tokens=max_tokens,
-            temperature=0,
             system=system,
             messages=[{"role": "user", "content": prompt}],
         )
@@ -361,6 +362,12 @@ def assess_evidence(
         "facoltativi o «eventuali». Se i passaggi rispondono a un livello di dettaglio diverso da quello "
         "immaginato (per esempio quanti stabilimenti in quanti Stati e Paesi invece di un elenco di città), "
         "l'elemento è TROVATO con quel valore: i documenti finanziari raramente scendono più nel dettaglio.\n"
+        "Se la domanda chiede un giudizio, un confronto o un indicatore da calcolare (per esempio «è "
+        "un'azienda ad alta intensità di capitale?», «il margine EBITDA», «la liquidità è adeguata?»), gli "
+        "elementi sono i DATI necessari per ricavarlo, dello stesso anno e della stessa azienda (per "
+        "esempio capex, ricavi, totale attività, utile netto), non il giudizio o l'indicatore già scritto: "
+        "il giudizio e il calcolo li fa la risposta. Indica tutti i dati di cui un analista avrebbe "
+        "bisogno, così che quelli mancanti vengano cercati.\n"
         "Regole di lettura:\n"
         "- Le tabelle sono estratte da PDF e appiattite: le intestazioni compaiono prima, in ordine, e i "
         "valori di ogni riga seguono lo stesso ordine delle colonne. Ricostruisci le colonne dall'ordine "

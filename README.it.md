@@ -44,7 +44,7 @@ la piattaforma, non solo il database.
 |---|---|---|
 | **Python 3.11 o 3.12** | fa girare l'applicazione | sì |
 | **Un cluster MongoDB Atlas** | contiene documenti, indici e memoria | sì |
-| **Una chiave per un modello linguistico** (per esempio Anthropic) | scrive le risposte | sì |
+| **Un modello linguistico a tua scelta** (per esempio OpenAI, Anthropic o Gemini) | scrive le risposte | sì |
 | **Una chiave Voyage AI** | serve solo per le modalità manual, context e multimodal | no |
 | **Git** | per scaricare il progetto | consigliato |
 | **Tesseract**, **LibreOffice** | OCR delle scansioni, pagine visive di Word e PowerPoint | no |
@@ -140,14 +140,9 @@ una chiave Voyage AI:
 VOYAGE_API_KEY=al-...
 ```
 
-**Sezione 3: il modello che scrive le risposte.** Il modo più semplice è Anthropic:
-
-```
-LLM_PROVIDER=anthropic
-ANTHROPIC_API_KEY=sk-ant-...
-```
-
-In alternativa `gemini` (Google) oppure `ollama` (un modello sul tuo computer, senza chiavi).
+**Sezione 3: il modello che scrive le risposte.** Lo scegli tu: indica il provider e la tua chiave
+(per esempio `LLM_PROVIDER=gemini` e `GEMINI_API_KEY=...`). Provider supportati: `openai`, `anthropic`,
+`gemini`, `ollama` (gira sul tuo computer, senza chiave).
 
 > **Il file `.env` contiene le tue chiavi: non va mai condiviso né pubblicato.** È già escluso da
 > git tramite `.gitignore`. Il file `.env.example`, invece, è il modello senza chiavi e fa parte del

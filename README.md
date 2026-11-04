@@ -46,7 +46,7 @@ platform, not just the database.
 |---|---|---|
 | **Python 3.11 or 3.12** | runs the application | yes |
 | **A MongoDB Atlas cluster** | stores documents, indexes and memory | yes |
-| **An API key for a language model** (for example Anthropic) | writes the answers | yes |
+| **A language model of your choice** (for example OpenAI, Anthropic or Gemini) | writes the answers | yes |
 | **A Voyage AI key** | only for the manual, context and multimodal modes | no |
 | **Git** | to download the project | recommended |
 | **Tesseract**, **LibreOffice** | OCR for scanned pages, visual pages of Word and PowerPoint files | no |
@@ -141,14 +141,9 @@ leave it empty: Atlas computes embeddings and reranking. The other modes need a 
 VOYAGE_API_KEY=al-...
 ```
 
-**Section 3: the model that writes the answers.** The simplest option is Anthropic:
-
-```
-LLM_PROVIDER=anthropic
-ANTHROPIC_API_KEY=sk-ant-...
-```
-
-Alternatively `gemini` (Google) or `ollama` (a model on your own computer, no keys).
+**Section 3: the model that writes the answers.** Your choice: set the provider and your key
+(for example `LLM_PROVIDER=gemini` and `GEMINI_API_KEY=...`). Supported providers: `openai`, `anthropic`,
+`gemini`, `ollama` (runs on your computer, no key).
 
 > **The `.env` file holds your keys: never share or publish it.** It is already excluded from git by
 > `.gitignore`. `.env.example`, on the other hand, is the key-free template and is part of the
