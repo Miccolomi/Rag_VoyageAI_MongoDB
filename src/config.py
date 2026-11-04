@@ -15,7 +15,12 @@ load_dotenv()
 # Root del progetto (cartella che contiene src/, prompts/, schemas/, …)
 _PROJECT_ROOT = Path(__file__).resolve().parent.parent
 
-MONGODB_URI: str = os.environ["MONGODB_URI"]
+MONGODB_URI: str = os.getenv("MONGODB_URI", "")
+if not MONGODB_URI:
+    raise SystemExit(
+        "MONGODB_URI non impostata. Copia .env.example in .env e compila le sezioni 1-3 "
+        "(README, sezione 3). / MONGODB_URI is not set: copy .env.example to .env and fill in sections 1-3."
+    )
 MONGODB_DB: str = os.getenv("MONGODB_DB", "rag")
 MONGODB_COLLECTION: str = os.getenv("MONGODB_COLLECTION", "pdf_chunks")
 MONGODB_GRIDFS_BUCKET: str = os.getenv("MONGODB_GRIDFS_BUCKET", "pdf_files")
