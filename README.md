@@ -376,3 +376,5 @@ terms of use before using them outside a demo.
 
 The 150 questions with reference answers on the **Domande di prova** page (`web/domande.json`)
 come from FinanceBench by Patronus AI, licensed CC BY-NC 4.0: non-commercial use, with attribution.
+
+The project code is released under the MIT licence (`LICENSE` file).
