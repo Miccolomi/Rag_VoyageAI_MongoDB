@@ -90,6 +90,7 @@
         <div class="fs db"><b>Memoria</b><span>passi e decisioni salvati; prima domanda cifrata 🔒</span></div>
       </div>
       <p class="flow-note">Ogni passo resta in MongoDB: la risposta si ricostruisce dalla domanda alle fonti, un requisito per audit e governance.</p>
+      <p class="flow-why"><b>Perché senza framework.</b> Il ciclo dell’agente è scritto in chiaro per mostrare ogni decisione e ogni operazione su MongoDB; i limiti sono regole nel codice (numero massimo di ricerche, nessuna risposta senza prove). Lo stesso schema si costruisce con framework come LangGraph o LlamaIndex: MongoDB si integra con entrambi come memoria e motore di ricerca.</p>
     </section>
 
     <section class="flow">
@@ -286,7 +287,7 @@
     <p class="muted mx-sub">Con la Client-Side Field Level Encryption (CSFLE) i campi sensibili vengono cifrati dall’applicazione prima di partire:
       MongoDB li riceve, li memorizza e li replica senza avere le chiavi per leggerli. Chi gestisce l’infrastruttura e chi può conoscere il dato
       restano separati. In questa demo è cifrata la prima domanda di ogni sessione dell’agente.</p>
-    <div class="card cs-card" id="mx-csfle-live"><p class="muted">Lettura dell’ultima sessione dal database…</p></div>
+    <div class="card cs-card" id="mx-csfle-live"></div>
     <div class="grid3 cs-steps">
       <div class="card"><h4>1 · Cifra l’applicazione</h4><p>Il driver MongoDB cifra il valore sul server dell’applicazione, con una chiave dati che solo l’applicazione può usare.</p></div>
       <div class="card"><h4>2 · MongoDB conserva un dato cifrato</h4><p>Sul cluster, sui dischi, nei backup e nella memoria del server il campo esiste solo cifrato. Gli altri campi restano normali: date, contatori, filtri.</p></div>

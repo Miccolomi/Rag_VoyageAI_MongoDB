@@ -223,15 +223,20 @@ pages.mongodb = (main) => {
   loadLiveProtection(main);
 };
 
-async function loadLiveProtection(main) {
+// Esempio fisso (non letto dal database): c'è sempre, anche con il database vuoto.
+// La domanda è inventata; i byte sono il suo vero cifrato CSFLE (AEAD_AES_256_CBC_HMAC_SHA_512-Random).
+const SAMPLE_PROTECTION = {
+  id: "6f3a9c2e-41d7-4b8a-9e0f-2c5d7a1b3e84", title: "Sessione del 12/10/2026 alle 10:32",
+  created_at: "2026-10-12T08:32:14", turns: 3, field: "first_question", encrypted: true,
+  key_alt_name: "rag-demo-sessioni", key_vault: "encryption.__keyVault", sample: true,
+  app_view: "Qual è stato il capex di 3M nel 2018? Confrontalo con il nostro piano di investimenti riservato per il 2026.",
+  stored_view: { bytes: 194, base64: "AiulklLmw0OyhL9iJIUFMXICGXBomNkiqETinQFTkqgo/KDJB+CxLj6N…" },
+};
+
+function loadLiveProtection(main) {
   const box = $("#mx-csfle-live", main);
   if (!box) return;
-  try {
-    const v = await getJSON("/api/protection/latest");
-    box.innerHTML = v.empty
-      ? `<p class="muted">Ancora nessuna sessione cifrata: fai una domanda nella Ricerca agentica e torna qui per vedere il confronto dal vivo.</p>`
-      : `<div class="cs-live-tag">● dal vivo · ultima sessione della Ricerca agentica</div>` + protectionCompare(v);
-  } catch { box.innerHTML = `<p class="muted">Confronto dal vivo non disponibile: il database non risponde.</p>`; }
+  box.innerHTML = `<div class="cs-live-tag">Esempio · una sessione della Ricerca agentica con una domanda inventata</div>` + protectionCompare(SAMPLE_PROTECTION);
 }
 
 // ─── Componenti condivisi ──────────────────────────────────────────────
@@ -396,7 +401,7 @@ ${fieldLine}<span class="j-p">}</span>`;
         <p class="cs-note">Il driver decifra il campo con la chiave dati. Gli altri campi sono identici: non erano cifrati.</p>
       </div>
     </div>
-    <p class="small muted cs-foot">Sessione del ${esc(fmtDate(v.created_at))}. Algoritmo casuale: la stessa domanda dà ogni volta un cifrato diverso.
+    <p class="small muted cs-foot">${v.sample ? "" : `Sessione del ${esc(fmtDate(v.created_at))}. `}Algoritmo casuale: la stessa domanda dà ogni volta un cifrato diverso.
       La chiave dati <code>${esc(v.key_alt_name)}</code> sta nel key vault <code>${esc(v.key_vault)}</code>, a sua volta cifrata con la chiave master,
       che il database non ha. Titolo, date e contatori restano in chiaro: servono per elenchi e filtri e non sono sensibili.</p>`;
 }

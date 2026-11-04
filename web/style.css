@@ -312,6 +312,8 @@ button.pill { border: 0; cursor: pointer; font: inherit; font-size: 12.5px; }
 .fs-pair .fs { flex: 1 1 auto; }
 .fa { align-self: center; color: var(--muted); font-size: 18px; }
 .flow-note { margin: 12px 0 0; font-size: 13px; color: var(--muted); }
+.flow-why { margin: 10px 0 0; font-size: 13px; color: var(--text); border-left: 3px solid var(--muted); background: var(--neutral-bg); border-radius: 0 8px 8px 0; padding: 8px 12px; }
+.flow-why b { color: var(--text); }
 .modes-title { margin: 18px 0 10px; font-size: 15px; }
 .modes { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; }
 @media (max-width: 900px) { .modes { grid-template-columns: 1fr; } }

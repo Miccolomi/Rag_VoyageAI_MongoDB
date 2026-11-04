@@ -1,4 +1,4 @@
-"""Client per l'API OpenAI "Responses": AI Gateway aziendale (provider gateway) oppure OpenAI (provider openai).
+"""Client per l'API OpenAI "Responses": un gateway compatibile (provider gateway) oppure OpenAI (provider openai).
 
 Endpoint: {base}/responses, autenticazione Bearer.
 Il gateway può esporre modelli con o senza "reasoning": alcuni parametri
@@ -83,6 +83,10 @@ def respond(system: str, user: str, *, model: str, max_tokens: int, json_mode: b
             timeout: float = 120.0, provider: str = "gateway") -> dict[str, Any]:
     """Una chiamata al modello. Restituisce answer, truncated, stop_reason, usage, model."""
     base_url, keys, name, key_var = _endpoint(provider)
+    if not base_url:
+        raise RuntimeError("AI_GATEWAY_BASE_URL non impostato nel .env")
+    if not model:
+        raise RuntimeError(f"{'OPENAI_MODEL' if provider == 'openai' else 'AI_GATEWAY_MODEL'} non impostato nel .env")
     if not keys:
         raise RuntimeError(f"{key_var} non impostata nel .env")
     optional: dict[str, Any] = {
@@ -123,7 +127,7 @@ def respond(system: str, user: str, *, model: str, max_tokens: int, json_mode: b
                 last_error = f"HTTP {response.status_code}: {_error_message(response)}"
                 break  # prova con la seconda chiave
             if provider == "gateway" and response.status_code == 403 and "RBAC" in response.text:
-                raise RuntimeError("AI Gateway: accesso negato dalla rete (RBAC). Serve la VPN aziendale attiva.")
+                raise RuntimeError("AI Gateway: accesso negato dalla rete (RBAC). Il gateway accetta solo la rete autorizzata: serve la VPN attiva.")
             if response.status_code >= 400:
                 raise RuntimeError(f"{name} ha rifiutato la richiesta (HTTP {response.status_code}, "
                                    f"modello {model}): {_error_message(response)}")

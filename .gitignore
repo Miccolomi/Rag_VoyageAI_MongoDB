@@ -14,7 +14,6 @@ data/financebench_100/
 *.md
 !README.md
 !README.it.md
-.claude/
 .pytest_cache/
 .coverage
 htmlcov/

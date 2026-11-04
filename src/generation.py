@@ -1,6 +1,6 @@
 """Risposta del modello basata solo sui passaggi recuperati.
 
-Provider scelto con `LLM_PROVIDER`: anthropic, openai, gemini, ollama, gateway (AI Gateway aziendale).
+Provider scelto con `LLM_PROVIDER`: anthropic, openai, gemini, ollama, gateway (gateway compatibile con l'API OpenAI Responses).
 `generate_answer()` fa una sola chiamata e restituisce testo, uso dei token e modello.
 Il system prompt (prompts/system_prompt.txt) è lo stesso per tutti i provider.
 """
@@ -237,7 +237,7 @@ def llm_available() -> bool:
     if config.LLM_PROVIDER == "anthropic":
         return bool(config.ANTHROPIC_API_KEY)
     if config.LLM_PROVIDER == "gateway":
-        return bool(config.AI_GATEWAY_API_KEY or config.AI_GATEWAY_API_KEY_2)
+        return bool(config.AI_GATEWAY_BASE_URL and config.AI_GATEWAY_MODEL and (config.AI_GATEWAY_API_KEY or config.AI_GATEWAY_API_KEY_2))
     if config.LLM_PROVIDER == "openai":
         return bool(config.OPENAI_API_KEY)
     if config.LLM_PROVIDER == "gemini":

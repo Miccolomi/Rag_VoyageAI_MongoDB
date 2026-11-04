@@ -20,6 +20,7 @@ class _Resp:
 
 @pytest.fixture(autouse=True)
 def keys(monkeypatch):
+    monkeypatch.setattr(config, "AI_GATEWAY_BASE_URL", "https://gateway.example/v1")
     monkeypatch.setattr(config, "AI_GATEWAY_API_KEY", "k1")
     monkeypatch.setattr(config, "AI_GATEWAY_API_KEY_2", "k2")
     ai_gateway._UNSUPPORTED.clear()
