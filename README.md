@@ -127,7 +127,7 @@ a default value.
 3. In *Network Access* add your computer's IP address.
 
 ```
-MONGODB_URI=mongodb+srv://user:password@cluster.xxxxx.mongodb.net/
+MONGODB_URI=mongodb+srv://<user>:<password>@<cluster>.mongodb.net/
 ```
 
 **Section 2: Voyage AI.** If for now you only use the **auto** mode (recommended to start), you can

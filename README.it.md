@@ -125,7 +125,7 @@ Poi apri `.env` con un editor di testo. Il file è diviso in sezioni numerate e 
 3. In *Network Access* aggiungi l'indirizzo IP del tuo computer.
 
 ```
-MONGODB_URI=mongodb+srv://utente:password@cluster.xxxxx.mongodb.net/
+MONGODB_URI=mongodb+srv://<utente>:<password>@<cluster>.mongodb.net/
 ```
 
 **Sezione 2: Voyage AI.** Se per ora userai solo la modalità **auto** (quella consigliata per
